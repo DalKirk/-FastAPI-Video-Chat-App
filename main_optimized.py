@@ -7,31 +7,44 @@ from datetime import datetime
 import json
 import uuid
 import os
-import mux_python
-from mux_python.rest import ApiException
+
+# Optional Mux imports - only if available
+try:
+    import mux_python
+    from mux_python.rest import ApiException
+    MUX_AVAILABLE = True
+except ImportError:
+    MUX_AVAILABLE = False
+    print("⚠️ Mux-python not available - video features disabled")
 
 app = FastAPI(title="Chat API with Video", description="Real-time messaging API with WebSocket support and video streaming")
 
-# Mux Configuration
-MUX_TOKEN_ID = "9750d6c6-011b-44cd-94df-23da0aaafd51"
-MUX_TOKEN_SECRET = "BEWYJ8Vsbdt6bB3v0CN/OhqCEWJVImhp5M7sSdaASL1cS1xmdmxLpCKzAY5KRN0qNcmmhmHroch"
-MUX_ENVIRONMENT_ID = "6i6puunpacqp84md0rm11dmd0"
+# Mux Configuration - Environment Variables
+MUX_TOKEN_ID = os.getenv("MUX_TOKEN_ID", "9750d6c6-011b-44cd-94df-23da0aaafd51")
+MUX_TOKEN_SECRET = os.getenv("MUX_TOKEN_SECRET", "BEWYJ8Vsbdt6bB3v0CN/OhqCEWJVImhp5M7sSdaASL1cS1xmdmxLpCKzAY5KRN0qNcmmhmHroch")
+MUX_ENVIRONMENT_ID = os.getenv("MUX_ENVIRONMENT_ID", "6i6puunpacqp84md0rm11dmd0")
 
-# Initialize Mux
-try:
-    configuration = mux_python.Configuration()
-    configuration.username = MUX_TOKEN_ID
-    configuration.password = MUX_TOKEN_SECRET
-    
-    assets_api = mux_python.AssetsApi(mux_python.ApiClient(configuration))
-    live_streams_api = mux_python.LiveStreamsApi(mux_python.ApiClient(configuration))
-    direct_uploads_api = mux_python.DirectUploadsApi(mux_python.ApiClient(configuration))
-    
-    mux_enabled = True
-    print("✅ Mux API configured successfully")
-except Exception as e:
-    mux_enabled = False
-    print(f"⚠️ Mux configuration failed: {e}")
+# Initialize Mux (Optional - graceful degradation if not available)
+mux_enabled = False
+assets_api = live_streams_api = direct_uploads_api = None
+
+if MUX_AVAILABLE and MUX_TOKEN_ID and MUX_TOKEN_SECRET:
+    try:
+        configuration = mux_python.Configuration()
+        configuration.username = MUX_TOKEN_ID
+        configuration.password = MUX_TOKEN_SECRET
+        
+        assets_api = mux_python.AssetsApi(mux_python.ApiClient(configuration))
+        live_streams_api = mux_python.LiveStreamsApi(mux_python.ApiClient(configuration))
+        direct_uploads_api = mux_python.DirectUploadsApi(mux_python.ApiClient(configuration))
+        
+        mux_enabled = True
+        print("✅ Mux API configured successfully")
+    except Exception as e:
+        mux_enabled = False
+        print(f"⚠️ Mux configuration failed: {e}")
+else:
+    print("⚠️ Mux not available - video features disabled")
 
 # Add CORS middleware for mobile browser compatibility
 app.add_middleware(
@@ -124,6 +137,20 @@ class ConnectionManager:
 
     async def send_personal_message(self, message: str, websocket: WebSocket):
         await websocket.send_text(message)
+
+# Health check endpoint
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for deployment verification"""
+    return {
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "services": {
+            "api": "running",
+            "websocket": "running",
+            "mux": "available" if mux_enabled else "disabled"
+        }
+    }
 
     async def broadcast_to_room(self, message: str, room_id: str):
         if room_id in self.active_connections:

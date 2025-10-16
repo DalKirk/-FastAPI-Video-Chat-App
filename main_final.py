@@ -5,49 +5,17 @@ from typing import List, Dict, Optional
 from datetime import datetime
 import json
 import uuid
-import os
-from pydantic import BaseModel
 
 app = FastAPI(title="Chat API", description="Real-time messaging API with WebSocket support")
 
-# CORS Configuration
-FRONTEND_URL = os.getenv("FRONTEND_URL", "https://next-js-14-front-end-for-chat-plast.vercel.app")
-
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "https://localhost:3000",
-        FRONTEND_URL,
-        "*"  # Allow all for development
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Data Models
-class User(BaseModel):
-    id: str
-    username: str
-
-class Message(BaseModel):
-    id: str
-    user_id: str
-    username: str
-    content: str
-    timestamp: datetime
-    room_id: str
-
-class CreateUserRequest(BaseModel):
-    username: str
-
-class JoinRoomRequest(BaseModel):
-    room_id: str
-
-class SendMessageRequest(BaseModel):
-    content: str
-    room_id: str
 
 # In-memory storage
 rooms: Dict[str, dict] = {}
@@ -87,19 +55,6 @@ class ConnectionManager:
                     self.active_connections[room_id].remove(connection)
 
 manager = ConnectionManager()
-
-# Health check endpoint
-@app.get("/health")
-async def health_check():
-    """Health check endpoint for deployment verification"""
-    return {
-        "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat() + "Z",
-        "services": {
-            "api": "running",
-            "websocket": "running"
-        }
-    }
 
 # API Endpoints
 @app.get("/")
@@ -182,7 +137,7 @@ def join_room(room_id: str, join_data: dict):
     
     return {"message": f"User {users[user_id]['username']} joined room {rooms[room_id]['name']}"}
 
-# WebSocket endpoint for real-time chat
+# WebSocket endpoint
 @app.websocket("/ws/{room_id}/{user_id}")
 async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
     if room_id not in rooms:
@@ -275,28 +230,12 @@ def get_chat_page():
         .room-item button:hover { background: #218838; }
         #roomsList { margin-top: 15px; }
         #roomsList h4 { color: #333; margin-bottom: 10px; }
-        .sound-controls { margin: 10px 0; padding: 10px; background: #f8f9fa; border-radius: 4px; border: 1px solid #ddd; }
-        .sound-controls label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
-        .sound-controls input[type="checkbox"] { margin: 0; }
-        .sound-controls input[type="range"] { flex: 1; margin-left: 10px; }
-        .volume-label { font-size: 12px; color: #666; }
     </style>
 </head>
 <body>
     <div class="container">
         <div id="setup" class="setup">
             <h2>FastAPI Chat</h2>
-            <div class="sound-controls">
-                <label>
-                    <input type="checkbox" id="soundEnabled" checked>
-                    🔊 Enable Sound Notifications
-                </label>
-                <div style="display: flex; align-items: center; margin-top: 5px;">
-                    <span class="volume-label">Volume:</span>
-                    <input type="range" id="volumeControl" min="0" max="100" value="50">
-                    <span class="volume-label" id="volumeDisplay">50%</span>
-                </div>
-            </div>
             <input type="text" id="username" placeholder="Enter your username">
             <button type="button" onclick="createUser()">Create User</button>
             <input type="text" id="roomName" placeholder="Enter room name">
@@ -321,75 +260,6 @@ def get_chat_page():
         let ws = null;
         let currentUser = null;
         let currentRoom = null;
-
-        // Sound system
-        class SoundManager {
-            constructor() {
-                this.enabled = true;
-                this.volume = 0.5;
-                this.sounds = {};
-                this.initializeSounds();
-            }
-
-            initializeSounds() {
-                // Create sound effects using Web Audio API
-                this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                
-                // Define sound frequencies and patterns
-                this.soundTypes = {
-                    message: { frequency: 800, duration: 0.15, type: 'sine' },
-                    userJoined: { frequency: 600, duration: 0.3, type: 'triangle' },
-                    userLeft: { frequency: 400, duration: 0.3, type: 'triangle' },
-                    connected: { frequency: 1000, duration: 0.2, type: 'square' },
-                    error: { frequency: 300, duration: 0.5, type: 'sawtooth' },
-                    notification: { frequency: 900, duration: 0.1, type: 'sine' }
-                };
-            }
-
-            async playSound(type) {
-                if (!this.enabled || !this.soundTypes[type]) return;
-                
-                try {
-                    // Resume audio context if suspended (browser policy)
-                    if (this.audioContext.state === 'suspended') {
-                        await this.audioContext.resume();
-                    }
-
-                    const { frequency, duration, type: waveType } = this.soundTypes[type];
-                    
-                    // Create oscillator
-                    const oscillator = this.audioContext.createOscillator();
-                    const gainNode = this.audioContext.createGain();
-                    
-                    oscillator.connect(gainNode);
-                    gainNode.connect(this.audioContext.destination);
-                    
-                    oscillator.frequency.setValueAtTime(frequency, this.audioContext.currentTime);
-                    oscillator.type = waveType;
-                    
-                    // Set volume with fade out
-                    gainNode.gain.setValueAtTime(this.volume * 0.3, this.audioContext.currentTime);
-                    gainNode.gain.exponentialRampToValueAtTime(0.01, this.audioContext.currentTime + duration);
-                    
-                    oscillator.start(this.audioContext.currentTime);
-                    oscillator.stop(this.audioContext.currentTime + duration);
-                    
-                } catch (error) {
-                    console.log('Sound playback failed:', error);
-                }
-            }
-
-            setEnabled(enabled) {
-                this.enabled = enabled;
-            }
-
-            setVolume(volume) {
-                this.volume = volume / 100;
-            }
-        }
-
-        // Initialize sound manager
-        const soundManager = new SoundManager();
 
         function showStatus(message, isError = false) {
             const status = document.getElementById('status');
@@ -425,7 +295,6 @@ def get_chat_page():
                 if (response.ok) {
                     currentUser = await response.json();
                     showStatus('User created: ' + currentUser.username);
-                    soundManager.playSound('notification');
                     console.log('User created successfully:', currentUser);
                 } else {
                     const errorText = await response.text();
@@ -461,7 +330,6 @@ def get_chat_page():
                 if (response.ok) {
                     const room = await response.json();
                     showStatus('Room created: ' + room.name);
-                    soundManager.playSound('notification');
                     console.log('Room created successfully:', room);
                     document.getElementById('roomName').value = '';
                     loadRooms();
@@ -549,34 +417,22 @@ def get_chat_page():
                 document.getElementById('chat').style.display = 'block';
                 document.getElementById('chatHeader').textContent = 'Room: ' + roomName;
                 showStatus('Connected to ' + roomName);
-                soundManager.playSound('connected');
             };
             
             ws.onmessage = function(event) {
                 console.log('WebSocket message received:', event.data);
                 const data = JSON.parse(event.data);
                 displayMessage(data);
-                
-                // Play appropriate sound based on message type
-                if (data.type === 'message') {
-                    soundManager.playSound('message');
-                } else if (data.type === 'user_joined') {
-                    soundManager.playSound('userJoined');
-                } else if (data.type === 'user_left') {
-                    soundManager.playSound('userLeft');
-                }
             };
             
             ws.onclose = function(event) {
                 console.log('WebSocket closed:', event.code, event.reason);
                 showStatus('Disconnected from room', true);
-                soundManager.playSound('error');
             };
             
             ws.onerror = function(error) {
                 console.error('WebSocket error:', error);
                 showStatus('Connection error', true);
-                soundManager.playSound('error');
             };
         }
 
@@ -595,14 +451,6 @@ def get_chat_page():
             
             chatArea.appendChild(messageDiv);
             chatArea.scrollTop = chatArea.scrollHeight;
-            
-            // Add visual notification effect for new messages
-            if (data.type === 'message') {
-                messageDiv.style.backgroundColor = '#e8f5e8';
-                setTimeout(() => {
-                    messageDiv.style.backgroundColor = 'white';
-                }, 1000);
-            }
         }
 
         function sendMessage() {
@@ -629,24 +477,6 @@ def get_chat_page():
         // Initialize page
         document.addEventListener('DOMContentLoaded', function() {
             console.log('Page loaded, setting up event listeners');
-            
-            // Sound control event listeners
-            const soundToggle = document.getElementById('soundEnabled');
-            const volumeControl = document.getElementById('volumeControl');
-            const volumeDisplay = document.getElementById('volumeDisplay');
-            
-            soundToggle.addEventListener('change', function() {
-                soundManager.setEnabled(this.checked);
-                if (this.checked) {
-                    soundManager.playSound('notification');
-                }
-            });
-            
-            volumeControl.addEventListener('input', function() {
-                const volume = parseInt(this.value);
-                soundManager.setVolume(volume);
-                volumeDisplay.textContent = volume + '%';
-            });
             
             // Enter key support for message input
             const messageInput = document.getElementById('messageInput');
@@ -685,8 +515,3 @@ def get_chat_page():
     </script>
 </body>
 </html>"""
-
-if __name__ == "__main__":
-    import uvicorn
-    port = int(os.getenv("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
