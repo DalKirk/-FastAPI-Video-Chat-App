@@ -1,88 +1,224 @@
-# FastAPI Real-Time Chat Application
+# 🚀 FastAPI Video Chat Application
 
-A modern real-time chat application built with FastAPI and WebSockets, optimized for mobile and desktop use.
+A comprehensive real-time video chat application with live streaming capabilities, built with FastAPI, WebSocket support, and Mux video integration.
 
-## 🚀 Features
+## 🌟 **Live Deployment**
 
-- **Real-time messaging** with WebSocket support
-- **Multi-room chat** - Create and join different chat rooms
-- **User management** - Simple user creation and management
-- **Mobile responsive** - Works perfectly on mobile devices
-- **Cross-platform** - Supports both HTTP and HTTPS deployments
-- **Production ready** - Optimized for Railway deployment
+### **🎯 Production URLs:**
+- **🏠 Backend API:** https://natural-presence-production.up.railway.app
+- **💚 Health Check:** https://natural-presence-production.up.railway.app/health
+- **📚 API Documentation:** https://natural-presence-production.up.railway.app/docs
+- **💬 Chat Interface:** https://natural-presence-production.up.railway.app/chat
+- **🖥️ Frontend:** https://next-js-14-front-end-for-chat-plast.vercel.app
 
-## 🛠️ Technology Stack
+## ✨ **Features**
 
-- **Backend**: FastAPI with WebSocket support
-- **Frontend**: Vanilla HTML/CSS/JavaScript
-- **Database**: In-memory storage (can be extended to use a database)
-- **Deployment**: Railway-optimized with Procfile
+### **💬 Real-time Chat:**
+- User registration and management
+- Room creation and joining
+- Real-time messaging via WebSocket
+- Message history and persistence
+- Mobile-optimized chat interface
 
-## 📱 Live Demo
+### **🎬 Video Integration:**
+- **Live Streaming** - Create and broadcast live streams
+- **Video Upload** - Upload and share video content
+- **Mux Player** - Professional video playback
+- **Real-time Notifications** - Video ready alerts
+- **Webhook Support** - Mux event processing
 
-Visit the live application: [Railway Deployment URL]
+### **🔧 Technical Features:**
+- **FastAPI** - Modern Python web framework
+- **WebSocket** - Real-time bidirectional communication
+- **Mux API** - Professional video infrastructure
+- **CORS Support** - Cross-origin resource sharing
+- **Health Monitoring** - System status endpoints
+- **Docker Ready** - Containerized deployment
 
-## 🔧 Local Development
+## 🛠️ **Technology Stack**
 
-1. **Clone the repository**
+- **Backend**: FastAPI, Python 3.9+
+- **WebSocket**: Real-time communication
+- **Video**: Mux API integration
+- **Deployment**: Railway (Backend) + Vercel (Frontend)
+- **Database**: In-memory (Redis/PostgreSQL ready)
+- **Container**: Docker with health checks
+
+## � **Quick Start**
+
+### **Option 1: Use Live Deployment**
+Just visit: https://next-js-14-front-end-for-chat-plast.vercel.app
+
+### **Option 2: Local Development**
+
+1. **Clone the repository:**
    ```bash
-   git clone <your-repo-url>
-   cd FastAPI-Chat
+   git clone https://github.com/YOUR-USERNAME/YOUR-REPO-NAME.git
+   cd YOUR-REPO-NAME
    ```
 
-2. **Create virtual environment**
-   ```bash
-   python -m venv venv
-   venv\Scripts\activate  # Windows
-   # or
-   source venv/bin/activate  # macOS/Linux
-   ```
-
-3. **Install dependencies**
+2. **Install dependencies:**
    ```bash
    pip install -r requirements.txt
    ```
 
-4. **Run the application**
+3. **Run the application:**
    ```bash
-   uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+   python main_optimized.py
    ```
 
-5. **Access the chat**
-   Open your browser to `http://localhost:8000/chat`
+4. **Open your browser:**
+   ```
+   http://localhost:8000/chat
+   ```
 
-## 🚀 Railway Deployment
+## 🌐 **Deployment**
 
-This application is pre-configured for Railway deployment with:
+### **Railway Deployment (Automated):**
+```bash
+# Install Railway CLI
+npm install -g @railway/cli
 
-- `Procfile` - Railway startup configuration
-- `requirements.txt` - Python dependencies
-- `runtime.txt` - Python version specification
-- `main.py` - Production-ready FastAPI application
+# Deploy with our script
+./deploy.ps1  # Windows
+./deploy.sh   # Linux/Mac
+```
 
-Simply connect this repository to Railway for automatic deployment.
+### **Manual Deployment:**
+```bash
+railway login
+railway init
+railway up
+```
 
-## 🎯 How to Use
+## 📁 **Project Structure**
 
-1. **Create a user** - Enter your username and click "Create User"
-2. **Create or join a room** - Either create a new room or join an existing one
-3. **Start chatting** - Send real-time messages to other users in the room
+```
+├── main_optimized.py     # Production FastAPI app with Mux
+├── main.py              # Basic FastAPI app (no Mux)
+├── requirements.txt     # Python dependencies
+├── Procfile            # Railway deployment config
+├── Dockerfile          # Container configuration
+├── deploy.ps1          # Windows deployment script
+├── deploy.sh           # Unix deployment script
+├── test_api.py         # API testing utilities
+└── docs/
+    ├── DEPLOYMENT_STATUS.md      # Current deployment info
+    ├── RAILWAY_DEPLOY_FIXED.md   # Deployment guide
+    └── ROOM_JOIN_FIX.md         # Troubleshooting
+```
 
-## 🔧 API Endpoints
+## � **API Endpoints**
 
-- `GET /` - API status
-- `POST /users` - Create a new user
-- `GET /users` - Get all users
-- `POST /rooms` - Create a new room
-- `GET /rooms` - Get all rooms
+### **Core Chat API:**
+- `GET /` - API information
+- `GET /health` - System health check
+- `POST /users` - Create user
+- `GET /users` - List users
+- `POST /rooms` - Create room
+- `GET /rooms` - List rooms
 - `GET /rooms/{room_id}/messages` - Get room messages
-- `POST /rooms/{room_id}/join` - Join a room
-- `WebSocket /ws/{room_id}/{user_id}` - Real-time chat connection
+- `POST /rooms/{room_id}/join` - Join room
 
-## 📝 License
+### **Video API (Mux Integration):**
+- `POST /rooms/{room_id}/live-stream` - Create live stream
+- `GET /rooms/{room_id}/live-streams` - Get room streams
+- `POST /rooms/{room_id}/video-upload` - Upload video
+- `GET /rooms/{room_id}/videos` - Get room videos
+- `POST /mux-webhook` - Mux event webhook
 
-This project is open source and available under the MIT License.
+### **WebSocket:**
+- `WS /ws/{room_id}/{user_id}` - Real-time chat connection
 
-## 🤝 Contributing
+## 🎬 **Video Features**
 
-Contributions are welcome! Feel free to submit a Pull Request.
+### **Mux Integration:**
+- **Token ID:** Configured via environment variables
+- **Live Streaming:** Create and manage live streams
+- **Video Upload:** Direct upload to Mux
+- **Playback:** Mux Player embedded in chat
+- **Webhooks:** Real-time video processing notifications
+
+### **Video Workflow:**
+1. User creates live stream in room
+2. Backend creates Mux live stream
+3. Stream key provided for broadcasting
+4. Real-time notifications sent to room participants
+5. Recorded content available for playback
+
+## 🔧 **Configuration**
+
+### **Environment Variables:**
+```bash
+# Optional Mux Configuration (for video features)
+MUX_TOKEN_ID=your-mux-token-id
+MUX_TOKEN_SECRET=your-mux-token-secret
+MUX_ENVIRONMENT_ID=your-mux-environment-id
+
+# Frontend URL (for CORS)
+FRONTEND_URL=https://your-frontend.vercel.app
+
+# Port (Railway sets automatically)
+PORT=8000
+```
+
+### **Local Development:**
+```bash
+# Copy environment template
+cp .env.example .env
+
+# Edit with your values
+nano .env
+```
+
+## � **Testing**
+
+### **API Testing:**
+```bash
+python test_api.py
+```
+
+### **Health Check:**
+```bash
+curl https://natural-presence-production.up.railway.app/health
+```
+
+### **WebSocket Testing:**
+Open the chat interface and test real-time messaging.
+
+## 🚀 **Deployment Status**
+
+- ✅ **Railway Backend:** https://natural-presence-production.up.railway.app
+- ✅ **Vercel Frontend:** https://next-js-14-front-end-for-chat-plast.vercel.app
+- ✅ **Mux Integration:** Configured and working
+- ✅ **WebSocket:** Real-time messaging active
+- ✅ **CORS:** Configured for cross-origin requests
+- ✅ **Health Monitoring:** Available at `/health`
+
+## 📞 **Support**
+
+- **Documentation:** Check the `/docs` folder
+- **API Docs:** Visit `/docs` endpoint on the live server
+- **Health Status:** Monitor via `/health` endpoint
+- **Logs:** Use `railway logs` for deployment debugging
+
+## 🔄 **Development Workflow**
+
+1. **Local Development:** Use `main.py` for basic chat
+2. **Video Features:** Use `main_optimized.py` with Mux
+3. **Testing:** Run `test_api.py` for API validation
+4. **Deployment:** Use `deploy.ps1` or `deploy.sh`
+5. **Monitoring:** Check `/health` and Railway dashboard
+
+## 🎯 **Next Steps**
+
+- [ ] Add persistent database (PostgreSQL/MongoDB)
+- [ ] Implement user authentication (JWT)
+- [ ] Add file sharing capabilities
+- [ ] Enhanced video controls and settings
+- [ ] Mobile app development (React Native)
+- [ ] Advanced moderation features
+
+---
+
+**Built with ❤️ using FastAPI, Mux, Railway, and Vercel**
