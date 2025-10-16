@@ -53,8 +53,8 @@ Just visit: https://next-js-14-front-end-for-chat-plast.vercel.app
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/YOUR-USERNAME/YOUR-REPO-NAME.git
-   cd YOUR-REPO-NAME
+   git clone https://github.com/DalKirk/FastAPI-Video-Chat-App.git
+   cd FastAPI-Video-Chat-App
    ```
 
 2. **Install dependencies:**
