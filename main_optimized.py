@@ -51,11 +51,13 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",  # Local development
-        "https://next-js-14-front-end-for-chat-plast.vercel.app",  # Your Vercel frontend
+        "https://localhost:3000",
+        "https://next-js-14-front-end-for-chat-plast.vercel.app",  # Primary Vercel frontend
+        "https://video-chat-frontend-ruby.vercel.app",  # Alternative Vercel frontend
         "*"  # Allow all origins for development
     ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
