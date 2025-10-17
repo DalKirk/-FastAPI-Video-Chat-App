@@ -229,6 +229,7 @@ def get_room_messages(room_id: str, limit: int = 50):
     room_messages = messages.get(room_id, [])
     
     # Convert timestamps to proper ISO format with Z suffix for API responses
+    # This ensures consistent UTC timestamp formatting for frontend parsing
     formatted_messages = []
     for msg in room_messages[-limit:]:
         formatted_messages.append({
