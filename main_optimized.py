@@ -165,7 +165,7 @@ async def health_check():
     return {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat() + "Z",
-        "version": "optimized",
+        "version": "optimized-v2",
         "services": {
             "api": "running",
             "websocket": "running",
