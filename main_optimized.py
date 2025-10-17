@@ -605,7 +605,7 @@ const chatArea=document.getElementById('chatArea');
 const messageDiv=document.createElement('div');
 if(data.type==='message'){
 messageDiv.className='message';
-const time=new Date(data.timestamp).toLocaleTimeString();
+const time=new Date(data.timestamp.endsWith('Z')?data.timestamp:data.timestamp+'Z').toLocaleTimeString();
 messageDiv.innerHTML='<strong>'+data.username+'</strong> <small>('+time+')</small><br>'+data.content}
 else if(data.type==='live_stream_created'){
 messageDiv.className='message live-stream-message';
