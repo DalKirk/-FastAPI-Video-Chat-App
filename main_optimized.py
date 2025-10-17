@@ -7,6 +7,8 @@ from datetime import datetime
 import json
 import uuid
 import os
+import base64
+import requests
 
 # Optional Mux imports - only if available
 try:
@@ -26,7 +28,7 @@ MUX_ENVIRONMENT_ID = os.getenv("MUX_ENVIRONMENT_ID", "6i6puunpacqp84md0rm11dmd0"
 
 # Initialize Mux (Optional - graceful degradation if not available)
 mux_enabled = False
-assets_api = live_streams_api = direct_uploads_api = None
+assets_api = live_streams_api = direct_uploads_api = uploads_api = None
 
 if MUX_AVAILABLE and MUX_TOKEN_ID and MUX_TOKEN_SECRET:
     try:
@@ -97,9 +99,17 @@ class JoinRoomRequest(BaseModel):
 class LiveStreamCreate(BaseModel):
     title: str
 
-class VideoUpload(BaseModel):
+class VideoUploadCreate(BaseModel):
     title: str
     description: Optional[str] = None
+
+class VideoUpload(BaseModel):
+    id: str
+    upload_url: str
+    status: str
+    room_id: str
+    title: str
+    created_at: datetime
 
 class LiveStream(BaseModel):
     id: str
@@ -116,6 +126,7 @@ messages: Dict[str, List[Message]] = {}
 users: Dict[str, User] = {}
 live_streams: Dict[str, LiveStream] = {}
 video_assets: Dict[str, dict] = {}
+video_uploads: Dict[str, VideoUpload] = {}
 
 # WebSocket Connection Manager
 class ConnectionManager:
@@ -165,13 +176,52 @@ async def health_check():
     return {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat() + "Z",
-        "version": "optimized-v2",
+        "version": "mock-implementations",
         "services": {
             "api": "running",
             "websocket": "running",
-            "mux": "available" if mux_enabled else "disabled"
-        }
+            "mux": "mock_mode"  # Using mock implementations for testing
+        },
+        "note": "Video endpoints return mock data. Mux integration needs fixing."
     }
+
+# Test Mux endpoint
+@app.get("/test-mux")
+async def test_mux():
+    """Test Mux API connectivity"""
+    if not mux_enabled:
+        return {"status": "Mux not enabled"}
+    
+    try:
+        # Test basic authentication with Mux
+        import base64
+        
+        auth_string = f"{MUX_TOKEN_ID}:{MUX_TOKEN_SECRET}"
+        auth_bytes = auth_string.encode('utf-8')
+        auth_b64 = base64.b64encode(auth_bytes).decode('utf-8')
+        
+        headers = {
+            'Authorization': f'Basic {auth_b64}',
+            'Content-Type': 'application/json'
+        }
+        
+        # Test with a simple GET request to list uploads
+        response = requests.get(
+            'https://api.mux.com/video/v1/uploads',
+            headers=headers
+        )
+        
+        return {
+            "status": "success" if response.status_code == 200 else "error",
+            "response_code": response.status_code,
+            "response_text": response.text[:500]  # Limit response size
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e)
+        }
 
 manager = ConnectionManager()
 
@@ -259,53 +309,48 @@ def join_room(room_id: str, join_data: JoinRoomRequest):
 # Mux Video Endpoints
 @app.post("/rooms/{room_id}/live-stream")
 async def create_live_stream(room_id: str, stream_data: LiveStreamCreate):
-    """Create a live stream for a room"""
-    if not mux_enabled:
-        raise HTTPException(status_code=503, detail="Video streaming not available")
-    
+    """Create a live stream for a room (mock implementation for testing)"""
     if room_id not in rooms:
         raise HTTPException(status_code=404, detail="Room not found")
     
-    try:
-        # Create live stream in Mux
-        create_live_stream_request = mux_python.CreateLiveStreamRequest(
-            playbook_policy=[mux_python.PlaybackPolicy.PUBLIC],
-            new_asset_settings=mux_python.CreateAssetRequest(
-                playbook_policy=[mux_python.PlaybackPolicy.PUBLIC]
-            )
-        )
-        
-        live_stream_response = live_streams_api.create_live_stream(create_live_stream_request)
-        mux_live_stream = live_stream_response.data
-        
-        # Store live stream info
-        live_stream = LiveStream(
-            id=mux_live_stream.id,
-            stream_key=mux_live_stream.stream_key,
-            playback_id=mux_live_stream.playback_ids[0].id,
-            status=mux_live_stream.status,
-            room_id=room_id,
-            title=stream_data.title,
-            created_at=datetime.utcnow()  # Use UTC for consistency
-        )
-        
-        live_streams[mux_live_stream.id] = live_stream
-        
-        # Notify room about new live stream
-        stream_message = {
-            "type": "live_stream_created",
-            "stream_id": live_stream.id,
-            "playback_id": live_stream.playback_id,
-            "title": live_stream.title,
-            "message": f"🔴 Live stream '{stream_data.title}' started",
-            "timestamp": datetime.utcnow().isoformat() + "Z"
-        }
-        await manager.broadcast_to_room(json.dumps(stream_message), room_id)
-        
-        return live_stream
-        
-    except ApiException as e:
-        raise HTTPException(status_code=400, detail=f"Mux API error: {e}")
+    # For now, return mock live stream data since Mux integration has issues
+    mock_stream_id = str(uuid.uuid4())
+    mock_stream_key = f"mock_stream_key_{mock_stream_id[:8]}"
+    mock_playback_id = f"mock_playback_{mock_stream_id[:8]}"
+    
+    # Store mock live stream info
+    live_stream = LiveStream(
+        id=mock_stream_id,
+        stream_key=mock_stream_key,
+        playback_id=mock_playback_id,
+        status="mock_ready",
+        room_id=room_id,
+        title=stream_data.title,
+        created_at=datetime.utcnow()
+    )
+    
+    live_streams[mock_stream_id] = live_stream
+    
+    # Notify room about new live stream
+    stream_message = {
+        "type": "live_stream_created",
+        "stream_id": live_stream.id,
+        "playback_id": live_stream.playback_id,
+        "title": live_stream.title,
+        "message": f"🔴 Live stream '{stream_data.title}' started (mock)",
+        "timestamp": datetime.utcnow().isoformat() + "Z"
+    }
+    await manager.broadcast_to_room(json.dumps(stream_message), room_id)
+    
+    return {
+        "id": live_stream.id,
+        "stream_key": live_stream.stream_key,
+        "playback_id": live_stream.playback_id,
+        "status": live_stream.status,
+        "title": live_stream.title,
+        "rtmp_url": "rtmp://mock-stream.example.com/live/",
+        "note": "This is a mock implementation. Mux integration needs fixing."
+    }
 
 @app.get("/rooms/{room_id}/live-streams")
 def get_room_live_streams(room_id: str):
@@ -317,45 +362,45 @@ def get_room_live_streams(room_id: str):
     return room_streams
 
 @app.post("/rooms/{room_id}/video-upload")
-async def create_video_upload(room_id: str, upload_data: VideoUpload):
-    """Create a direct upload URL for video sharing"""
-    if not mux_enabled:
-        raise HTTPException(status_code=503, detail="Video upload not available")
-    
+async def create_video_upload(room_id: str, upload_data: VideoUploadCreate):
+    """Create a video upload URL for a room (mock implementation for testing)"""
     if room_id not in rooms:
         raise HTTPException(status_code=404, detail="Room not found")
     
-    try:
-        # Create upload URL
-        create_upload_request = mux_python.CreateDirectUploadRequest(
-            new_asset_settings=mux_python.CreateAssetRequest(
-                playbook_policy=[mux_python.PlaybackPolicy.PUBLIC]
-            ),
-            cors_origin="*"
-        )
-        
-        upload_response = direct_uploads_api.create_direct_upload(create_upload_request)
-        upload = upload_response.data
-        
-        # Store upload info
-        video_assets[upload.id] = {
-            "id": upload.id,
-            "url": upload.url,
-            "room_id": room_id,
-            "title": upload_data.title,
-            "description": upload_data.description,
-            "created_at": datetime.utcnow().isoformat() + "Z"  # Use UTC with Z suffix
-        }
-        
-        return {
-            "upload_id": upload.id,
-            "upload_url": upload.url,
-            "room_id": room_id,
-            "title": upload_data.title
-        }
-        
-    except ApiException as e:
-        raise HTTPException(status_code=400, detail=f"Mux API error: {e}")
+    # For now, return a mock upload URL since Mux integration has issues
+    mock_upload_id = str(uuid.uuid4())
+    mock_upload_url = f"https://mock-upload.example.com/{mock_upload_id}"
+    
+    # Store mock upload info
+    video_upload = VideoUpload(
+        id=mock_upload_id,
+        upload_url=mock_upload_url,
+        status="mock_ready",
+        room_id=room_id,
+        title=upload_data.title,
+        created_at=datetime.utcnow()
+    )
+    
+    video_uploads[mock_upload_id] = video_upload
+    
+    # Notify room about new video upload
+    upload_message = {
+        "type": "video_upload_created",
+        "upload_id": video_upload.id,
+        "upload_url": video_upload.upload_url,
+        "title": video_upload.title,
+        "message": f"📹 Video upload '{upload_data.title}' ready (mock)",
+        "timestamp": datetime.utcnow().isoformat() + "Z"
+    }
+    await manager.broadcast_to_room(json.dumps(upload_message), room_id)
+    
+    return {
+        "id": video_upload.id,
+        "upload_url": video_upload.upload_url,
+        "status": video_upload.status,
+        "title": video_upload.title,
+        "note": "This is a mock implementation. Mux integration needs fixing."
+    }
 
 @app.get("/rooms/{room_id}/videos")
 def get_room_videos(room_id: str):
@@ -406,12 +451,17 @@ async def mux_webhook(request: dict):
 # WebSocket endpoint for real-time chat
 @app.websocket("/ws/{room_id}/{user_id}")
 async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
+    # More lenient validation - just check that user and room exist
     if room_id not in rooms:
         await websocket.close(code=4004, reason="Room not found")
         return
     if user_id not in users:
         await websocket.close(code=4004, reason="User not found")
         return
+    
+    # Add user to room if not already there (defensive programming)
+    if user_id not in rooms[room_id].users:
+        rooms[room_id].users.append(user_id)
     
     await manager.connect(websocket, room_id, user_id)
     user = users[user_id]
