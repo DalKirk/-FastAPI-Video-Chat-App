@@ -79,12 +79,21 @@ class ConnectionManager:
 
     async def broadcast_to_room(self, message: str, room_id: str):
         if room_id in self.active_connections:
-            for connection in self.active_connections[room_id]:
+            # Create a copy of the connections list to avoid modification during iteration
+            connections = self.active_connections[room_id].copy()
+            dead_connections = []
+            
+            for connection in connections:
                 try:
                     await connection.send_text(message)
                 except:
-                    # Remove dead connections
-                    self.active_connections[room_id].remove(connection)
+                    # Mark dead connections for removal
+                    dead_connections.append(connection)
+            
+            # Remove dead connections after iteration
+            for dead_connection in dead_connections:
+                if dead_connection in self.active_connections[room_id]:
+                    self.active_connections[room_id].remove(dead_connection)
 
 manager = ConnectionManager()
 
@@ -206,34 +215,62 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
     try:
         while True:
             data = await websocket.receive_text()
-            message_data = json.loads(data)
-            
-            # Create message
-            message_id = str(uuid.uuid4())
-            message = {
-                "id": message_id,
-                "user_id": user_id,
-                "username": user["username"],
-                "room_id": room_id,
-                "content": message_data["content"],
-                "timestamp": datetime.now().isoformat()
-            }
-            
-            # Store message
-            messages[room_id].append(message)
-            
-            # Broadcast message to room
-            broadcast_data = {
-                "type": "message",
-                "id": message["id"],
-                "user_id": message["user_id"],
-                "username": message["username"],
-                "content": message["content"],
-                "timestamp": message["timestamp"]
-            }
-            await manager.broadcast_to_room(json.dumps(broadcast_data), room_id)
+            try:
+                message_data = json.loads(data)
+                print(f"Received message data: {message_data}")
+                
+                # Validate message format
+                if "content" not in message_data:
+                    print("Error: Missing 'content' field in message")
+                    continue
+                
+                # Create message
+                message_id = str(uuid.uuid4())
+                message = {
+                    "id": message_id,
+                    "user_id": user_id,
+                    "username": user["username"],
+                    "room_id": room_id,
+                    "content": message_data["content"],
+                    "timestamp": datetime.now().isoformat()
+                }
+                
+                print(f"Created message: {message}")
+                
+                # Store message
+                if room_id not in messages:
+                    print(f"Warning: messages[{room_id}] not initialized, initializing now")
+                    messages[room_id] = []
+                
+                messages[room_id].append(message)
+                print(f"Message stored successfully. Total messages in room: {len(messages[room_id])}")
+                
+                # Broadcast message to room
+                broadcast_data = {
+                    "type": "message",
+                    "id": message["id"],
+                    "user_id": message["user_id"],
+                    "username": message["username"],
+                    "content": message["content"],
+                    "timestamp": message["timestamp"]
+                }
+                
+                print(f"Broadcasting message: {broadcast_data}")
+                await manager.broadcast_to_room(json.dumps(broadcast_data), room_id)
+                print("Message broadcast successful")
+                
+            except json.JSONDecodeError as e:
+                print(f"JSON decode error: {e}")
+                continue
+            except KeyError as e:
+                print(f"Key error in message processing: {e}")
+                continue
+            except Exception as e:
+                print(f"Unexpected error in message processing: {e}")
+                continue
             
     except WebSocketDisconnect:
+        print(f"WebSocket disconnected for user {user_id} in room {room_id}")
         manager.disconnect(websocket, room_id, user_id)
         leave_message = {
             "type": "user_left",

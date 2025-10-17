@@ -140,6 +140,24 @@ class ConnectionManager:
     async def send_personal_message(self, message: str, websocket: WebSocket):
         await websocket.send_text(message)
 
+    async def broadcast_to_room(self, message: str, room_id: str):
+        if room_id in self.active_connections:
+            # Create a copy of the connections list to avoid modification during iteration
+            connections = self.active_connections[room_id].copy()
+            dead_connections = []
+            
+            for connection in connections:
+                try:
+                    await connection.send_text(message)
+                except:
+                    # Mark dead connections for removal
+                    dead_connections.append(connection)
+            
+            # Remove dead connections after iteration
+            for dead_connection in dead_connections:
+                if dead_connection in self.active_connections[room_id]:
+                    self.active_connections[room_id].remove(dead_connection)
+
 # Health check endpoint
 @app.get("/health")
 async def health_check():
@@ -153,15 +171,6 @@ async def health_check():
             "mux": "available" if mux_enabled else "disabled"
         }
     }
-
-    async def broadcast_to_room(self, message: str, room_id: str):
-        if room_id in self.active_connections:
-            for connection in self.active_connections[room_id]:
-                try:
-                    await connection.send_text(message)
-                except:
-                    # Remove dead connections
-                    self.active_connections[room_id].remove(connection)
 
 manager = ConnectionManager()
 
