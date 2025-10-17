@@ -284,7 +284,7 @@ async def create_live_stream(room_id: str, stream_data: LiveStreamCreate):
             "playback_id": live_stream.playback_id,
             "title": live_stream.title,
             "message": f"🔴 Live stream '{stream_data.title}' started",
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.utcnow().isoformat() + "Z"
         }
         await manager.broadcast_to_room(json.dumps(stream_message), room_id)
         
@@ -379,7 +379,7 @@ async def mux_webhook(request: dict):
                             "playback_id": playback_id,
                             "title": video["title"],
                             "message": f"🎥 Video '{video['title']}' is ready to watch",
-                            "timestamp": datetime.now().isoformat()
+                            "timestamp": datetime.utcnow().isoformat() + "Z"
                         }
                         await manager.broadcast_to_room(json.dumps(video_ready_message), room_id)
                         break
@@ -406,7 +406,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
     join_message = {
         "type": "user_joined",
         "message": f"{user.username} joined the chat",
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.utcnow().isoformat() + "Z"
     }
     await manager.broadcast_to_room(json.dumps(join_message), room_id)
     
@@ -423,7 +423,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
                 username=user.username,
                 room_id=room_id,
                 content=message_data["content"],
-                timestamp=datetime.now()
+                timestamp=datetime.utcnow()
             )
             
             # Store message
@@ -436,7 +436,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
                 "user_id": message.user_id,
                 "username": message.username,
                 "content": message.content,
-                "timestamp": message.timestamp.isoformat()
+                "timestamp": message.timestamp.isoformat() + "Z"
             }
             await manager.broadcast_to_room(json.dumps(broadcast_data), room_id)
             
@@ -445,7 +445,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
         leave_message = {
             "type": "user_left",
             "message": f"{user.username} left the chat",
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.utcnow().isoformat() + "Z"
         }
         await manager.broadcast_to_room(json.dumps(leave_message), room_id)
 
