@@ -73,7 +73,7 @@ class Message(BaseModel):
     username: str
     room_id: str
     content: str
-    timestamp: datetime
+    timestamp: str
 
 class Room(BaseModel):
     id: str
@@ -228,8 +228,7 @@ def get_room_messages(room_id: str, limit: int = 50):
         raise HTTPException(status_code=404, detail="Room not found")
     room_messages = messages.get(room_id, [])
     
-    # Convert timestamps to proper ISO format with Z suffix for API responses
-    # This ensures consistent UTC timestamp formatting for frontend parsing
+    # Return messages with properly formatted UTC timestamps
     formatted_messages = []
     for msg in room_messages[-limit:]:
         formatted_messages.append({
@@ -238,7 +237,7 @@ def get_room_messages(room_id: str, limit: int = 50):
             "username": msg.username,
             "room_id": msg.room_id,
             "content": msg.content,
-            "timestamp": msg.timestamp.isoformat() + "Z"
+            "timestamp": msg.timestamp
         })
     
     return formatted_messages
@@ -437,7 +436,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
                 username=user.username,
                 room_id=room_id,
                 content=message_data["content"],
-                timestamp=datetime.utcnow()
+                timestamp=datetime.utcnow().isoformat() + "Z"
             )
             
             # Store message
@@ -450,7 +449,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
                 "user_id": message.user_id,
                 "username": message.username,
                 "content": message.content,
-                "timestamp": message.timestamp.isoformat() + "Z"
+                "timestamp": message.timestamp
             }
             await manager.broadcast_to_room(json.dumps(broadcast_data), room_id)
             
