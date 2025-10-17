@@ -227,7 +227,20 @@ def get_room_messages(room_id: str, limit: int = 50):
     if room_id not in rooms:
         raise HTTPException(status_code=404, detail="Room not found")
     room_messages = messages.get(room_id, [])
-    return room_messages[-limit:]  # Return last N messages
+    
+    # Convert timestamps to proper ISO format with Z suffix for API responses
+    formatted_messages = []
+    for msg in room_messages[-limit:]:
+        formatted_messages.append({
+            "id": msg.id,
+            "user_id": msg.user_id,
+            "username": msg.username,
+            "room_id": msg.room_id,
+            "content": msg.content,
+            "timestamp": msg.timestamp.isoformat() + "Z"
+        })
+    
+    return formatted_messages
 
 @app.post("/rooms/{room_id}/join")
 def join_room(room_id: str, join_data: JoinRoomRequest):
