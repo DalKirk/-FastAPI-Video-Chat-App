@@ -186,7 +186,7 @@ def create_user(user_data: UserCreate):
     user = User(
         id=user_id,
         username=user_data.username,
-        joined_at=datetime.now()
+        joined_at=datetime.utcnow()  # Use UTC for consistency
     )
     users[user_id] = user
     return user
@@ -203,7 +203,7 @@ def create_room(room_data: RoomCreate):
     room = Room(
         id=room_id,
         name=room_data.name,
-        created_at=datetime.now()
+        created_at=datetime.utcnow()  # Use UTC for consistency
     )
     rooms[room_id] = room
     messages[room_id] = []
@@ -221,7 +221,7 @@ def get_room(room_id: str):
         raise HTTPException(status_code=404, detail="Room not found")
     return rooms[room_id]
 
-@app.get("/rooms/{room_id}/messages", response_model=List[Message])
+@app.get("/rooms/{room_id}/messages")
 def get_room_messages(room_id: str, limit: int = 50):
     """Get messages from a room"""
     if room_id not in rooms:
@@ -285,7 +285,7 @@ async def create_live_stream(room_id: str, stream_data: LiveStreamCreate):
             status=mux_live_stream.status,
             room_id=room_id,
             title=stream_data.title,
-            created_at=datetime.now()
+            created_at=datetime.utcnow()  # Use UTC for consistency
         )
         
         live_streams[mux_live_stream.id] = live_stream
@@ -343,7 +343,7 @@ async def create_video_upload(room_id: str, upload_data: VideoUpload):
             "room_id": room_id,
             "title": upload_data.title,
             "description": upload_data.description,
-            "created_at": datetime.now().isoformat()
+            "created_at": datetime.utcnow().isoformat() + "Z"  # Use UTC with Z suffix
         }
         
         return {
