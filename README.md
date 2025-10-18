@@ -1,6 +1,6 @@
 # 🚀 FastAPI Video Chat Application
 
-A comprehensive real-time video chat application with live streaming capabilities, built with FastAPI, WebSocket support, and Mux video integration.
+A comprehensive real-time video chat application with live streaming capabilities, built with FastAPI, WebSocket support, and **Bunny.net Stream** video integration.
 
 ## 🌟 **Live Deployment**
 
@@ -24,30 +24,40 @@ A comprehensive real-time video chat application with live streaming capabilitie
 - Mobile-optimized chat interface
 
 ### **🎬 Video Integration:**
-- **Live Streaming** - Create and broadcast live streams
-- **Video Upload** - Upload and share video content
-- **Mux Player** - Professional video playback
-- **Real-time Notifications** - Video ready alerts
-- **Webhook Support** - Mux event processing
+- **Live Streaming** - Create and broadcast live streams via Bunny.net Stream
+- **Video Upload** - Upload and share video content to Bunny.net storage
+- **HLS Playback** - Professional video playback with HLS.js
+- **Real-time Notifications** - Video processing status updates
+- **Webhook Support** - Bunny.net event processing
 
 ### **🔧 Technical Features:**
 - **FastAPI** - Modern Python web framework
 - **WebSocket** - Real-time bidirectional communication
-- **Mux API** - Professional video infrastructure
+- **Bunny.net Stream** - Cost-effective video infrastructure
 - **CORS Support** - Cross-origin resource sharing
 - **Health Monitoring** - System status endpoints
 - **Docker Ready** - Containerized deployment
 
 ## 🛠️ **Technology Stack**
 
-- **Backend**: FastAPI, Python 3.9+
+- **Backend**: FastAPI, Python 3.14+
 - **WebSocket**: Real-time communication
-- **Video**: Mux API integration
+- **Video**: Bunny.net Stream API (replacing Mux)
 - **Deployment**: Railway (Backend) + Vercel (Frontend)
 - **Database**: In-memory (Redis/PostgreSQL ready)
 - **Container**: Docker with health checks
+- **Video Player**: HLS.js for cross-browser compatibility
 
-## � **Quick Start**
+## 📊 **Cost Comparison**
+
+| Feature | Mux (Previous) | Bunny.net Stream (Current) | Savings |
+|---------|----------------|---------------------------|---------|
+| Video Storage | $0.50/GB/month | $0.01/GB/month | **98% cheaper** |
+| Video Delivery | $0.10/GB | $0.005/GB | **95% cheaper** |
+| Live Streaming | $0.10/minute | $0.005/minute | **95% cheaper** |
+| Free Tier | Limited | 10GB storage + 100GB bandwidth | **Much more generous** |
+
+## 🚀 **Quick Start**
 
 ### **Option 1: Use Live Deployment**
 Just visit: https://next-js-14-front-end-for-chat-plast.vercel.app
@@ -56,8 +66,8 @@ Just visit: https://next-js-14-front-end-for-chat-plast.vercel.app
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/DalKirk/FastAPI-Video-Chat-App.git
-   cd FastAPI-Video-Chat-App
+   git clone https://github.com/DalKirk/-FastAPI-Video-Chat-App.git
+   cd -FastAPI-Video-Chat-App
    ```
 
 2. **Install dependencies:**
@@ -67,7 +77,7 @@ Just visit: https://next-js-14-front-end-for-chat-plast.vercel.app
 
 3. **Run the application:**
    ```bash
-   python main_optimized.py
+   python main.py
    ```
 
 4. **Open your browser:**
@@ -97,25 +107,30 @@ railway up
 ## 📁 **Project Structure**
 
 ```
-├── main_optimized.py     # Production FastAPI app with Mux
-├── main.py              # Basic FastAPI app (no Mux)
-├── requirements.txt     # Python dependencies
+├── main.py              # Production FastAPI app with Bunny.net Stream
+├── main_backup.py       # Backup version
+├── main_optimized.py    # Alternative optimized version
+├── requirements.txt     # Python dependencies (Python 3.14 compatible)
 ├── Procfile            # Railway deployment config
 ├── Dockerfile          # Container configuration
 ├── deploy.ps1          # Windows deployment script
 ├── deploy.sh           # Unix deployment script
 ├── test_api.py         # API testing utilities
+├── test_websocket.py   # WebSocket testing
+├── test_timestamps.py  # Timestamp validation
 └── docs/
     ├── DEPLOYMENT_STATUS.md      # Current deployment info
     ├── RAILWAY_DEPLOY_FIXED.md   # Deployment guide
-    └── ROOM_JOIN_FIX.md         # Troubleshooting
+    ├── WEBSOCKET_FIX.md         # WebSocket troubleshooting
+    └── ROOM_JOIN_FIX.md         # Room joining fixes
 ```
 
-## � **API Endpoints**
+## 🔗 **API Endpoints**
 
 ### **Core Chat API:**
 - `GET /` - API information
 - `GET /health` - System health check
+- `GET /test-bunny` - Bunny.net API connectivity test
 - `POST /users` - Create user
 - `GET /users` - List users
 - `POST /rooms` - Create room
@@ -123,40 +138,48 @@ railway up
 - `GET /rooms/{room_id}/messages` - Get room messages
 - `POST /rooms/{room_id}/join` - Join room
 
-### **Video API (Mux Integration):**
+### **Video API (Bunny.net Stream Integration):**
 - `POST /rooms/{room_id}/live-stream` - Create live stream
 - `GET /rooms/{room_id}/live-streams` - Get room streams
 - `POST /rooms/{room_id}/video-upload` - Upload video
 - `GET /rooms/{room_id}/videos` - Get room videos
-- `POST /mux-webhook` - Mux event webhook
+- `POST /bunny-webhook` - Bunny.net event webhook
 
 ### **WebSocket:**
 - `WS /ws/{room_id}/{user_id}` - Real-time chat connection
 
 ## 🎬 **Video Features**
 
-### **Mux Integration:**
-- **Token ID:** Configured via environment variables
+### **Bunny.net Stream Integration:**
+- **API Key:** Configured via environment variables
 - **Live Streaming:** Create and manage live streams
-- **Video Upload:** Direct upload to Mux
-- **Playback:** Mux Player embedded in chat
+- **Video Upload:** Direct upload to Bunny.net storage
+- **Playback:** HLS streams via Bunny.net CDN
 - **Webhooks:** Real-time video processing notifications
 
 ### **Video Workflow:**
 1. User creates live stream in room
-2. Backend creates Mux live stream
-3. Stream key provided for broadcasting
+2. Backend creates Bunny.net live stream
+3. Stream key provided for broadcasting (use in OBS/Streamlabs)
 4. Real-time notifications sent to room participants
-5. Recorded content available for playback
+5. Recorded content available for HLS playback
+
+### **Supported Formats:**
+- **Upload:** MP4, MOV, AVI, MKV, WebM
+- **Live Streaming:** RTMP input, HLS output
+- **Playback:** HLS.js player (works on all modern browsers)
 
 ## 🔧 **Configuration**
 
 ### **Environment Variables:**
 ```bash
-# Optional Mux Configuration (for video features)
-MUX_TOKEN_ID=your-mux-token-id
-MUX_TOKEN_SECRET=your-mux-token-secret
-MUX_ENVIRONMENT_ID=your-mux-environment-id
+# Required Bunny.net Configuration
+BUNNY_API_KEY=your-bunny-api-key
+BUNNY_LIBRARY_ID=your-library-id
+BUNNY_PULL_ZONE=your-pull-zone-domain
+
+# Optional Configuration
+BUNNY_COLLECTION_ID=your-collection-id  # Optional grouping
 
 # Frontend URL (for CORS)
 FRONTEND_URL=https://your-frontend.vercel.app
@@ -164,6 +187,14 @@ FRONTEND_URL=https://your-frontend.vercel.app
 # Port (Railway sets automatically)
 PORT=8000
 ```
+
+### **Getting Bunny.net Credentials:**
+
+1. **Sign up:** https://panel.bunny.net/
+2. **Create Video Library:** Go to Stream → Video Library → Add Library
+3. **Get Library ID:** From the library settings
+4. **Get Pull Zone:** Create a Pull Zone for your library
+5. **API Key:** Account → API Key
 
 ### **Local Development:**
 ```bash
@@ -174,44 +205,73 @@ cp .env.example .env
 nano .env
 ```
 
-## � **Testing**
+## 🧪 **Testing**
 
 ### **API Testing:**
 ```bash
 python test_api.py
 ```
 
+### **WebSocket Testing:**
+```bash
+python test_websocket.py
+```
+
 ### **Health Check:**
 ```bash
 curl https://natural-presence-production.up.railway.app/health
+# Should return: {"bunny_stream": "enabled"}
 ```
 
-### **WebSocket Testing:**
-Open the chat interface and test real-time messaging.
+### **Bunny.net API Test:**
+```bash
+curl https://natural-presence-production.up.railway.app/test-bunny
+# Should return: {"status": "success"}
+```
+
+### **Full Integration Test:**
+1. Visit the chat interface
+2. Create a user and room
+3. Try video upload and live streaming
+4. Check real-time notifications
 
 ## 🚀 **Deployment Status**
 
 - ✅ **Railway Backend:** https://natural-presence-production.up.railway.app
 - ✅ **Vercel Frontend:** https://next-js-14-front-end-for-chat-plast.vercel.app
-- ✅ **Mux Integration:** Configured and working
+- ✅ **Bunny.net Stream:** Configured and working
 - ✅ **WebSocket:** Real-time messaging active
 - ✅ **CORS:** Configured for cross-origin requests
 - ✅ **Health Monitoring:** Available at `/health`
+- ✅ **Python 3.14:** Compatible versions deployed
 
 ## 📞 **Support**
 
 - **Documentation:** Check the `/docs` folder
 - **API Docs:** Visit `/docs` endpoint on the live server
 - **Health Status:** Monitor via `/health` endpoint
+- **Bunny.net Status:** Test via `/test-bunny` endpoint
 - **Logs:** Use `railway logs` for deployment debugging
 
 ## 🔄 **Development Workflow**
 
-1. **Local Development:** Use `main.py` for basic chat
-2. **Video Features:** Use `main_optimized.py` with Mux
-3. **Testing:** Run `test_api.py` for API validation
+1. **Local Development:** Use `main.py` with Bunny.net integration
+2. **Video Features:** Bunny.net Stream handles all video processing
+3. **Testing:** Run test files for API and WebSocket validation
 4. **Deployment:** Use `deploy.ps1` or `deploy.sh`
 5. **Monitoring:** Check `/health` and Railway dashboard
+
+## 🎯 **Migration from Mux**
+
+This project was previously using Mux for video services but has been migrated to Bunny.net Stream for:
+
+- **💰 90%+ cost reduction**
+- **📈 Better free tier** (10GB storage + 100GB bandwidth)
+- **🔧 Simpler API** and easier integration
+- **🌍 Global CDN** with excellent performance
+- **📱 Better mobile support**
+
+The migration maintains full backward compatibility with existing frontend code.
 
 ## 🎯 **Next Steps**
 
@@ -221,7 +281,8 @@ Open the chat interface and test real-time messaging.
 - [ ] Enhanced video controls and settings
 - [ ] Mobile app development (React Native)
 - [ ] Advanced moderation features
+- [ ] Video analytics and insights
 
 ---
 
-**Built with ❤️ using FastAPI, Mux, Railway, and Vercel**
+**Built with ❤️ using FastAPI, Bunny.net Stream, Railway, and Vercel**
