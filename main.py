@@ -1,7 +1,7 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Dict, Optional
 from datetime import datetime
 import json
@@ -53,7 +53,10 @@ app.add_middleware(
 class User(BaseModel):
     id: str
     username: str
-    joined_at: datetime
+    joined_at: str
+    
+    class Config:
+        arbitrary_types_allowed = True
 
 class Message(BaseModel):
     id: str
@@ -62,12 +65,18 @@ class Message(BaseModel):
     room_id: str
     content: str
     timestamp: str
+    
+    class Config:
+        arbitrary_types_allowed = True
 
 class Room(BaseModel):
     id: str
     name: str
-    created_at: datetime
+    created_at: str
     users: List[str] = []
+    
+    class Config:
+        arbitrary_types_allowed = True
 
 class MessageCreate(BaseModel):
     content: str
@@ -95,7 +104,10 @@ class VideoUpload(BaseModel):
     status: str
     room_id: str
     title: str
-    created_at: datetime
+    created_at: str
+    
+    class Config:
+        arbitrary_types_allowed = True
 
 class LiveStream(BaseModel):
     id: str
@@ -104,7 +116,10 @@ class LiveStream(BaseModel):
     status: str
     room_id: str
     title: str
-    created_at: datetime
+    created_at: str
+    
+    class Config:
+        arbitrary_types_allowed = True
 
 # In-memory storage (in production, use a database)
 rooms: Dict[str, Room] = {}
