@@ -2,7 +2,9 @@ import asyncio
 import websockets
 import json
 import requests
+import pytest
 
+@pytest.mark.asyncio
 async def test_deployed_backend():
     print("🧪 Testing deployed backend full flow...")
 
@@ -69,6 +71,3 @@ async def test_deployed_backend():
 
     except Exception as e:
         print(f"❌ WebSocket test failed: {e}")
-
-if __name__ == "__main__":
-    asyncio.run(test_deployed_backend())

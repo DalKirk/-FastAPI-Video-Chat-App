@@ -3,7 +3,9 @@ import websockets
 import json
 import requests
 import time
+import pytest
 
+@pytest.mark.asyncio
 async def test_timestamps():
     print('🧪 Testing timestamp storage and retrieval...')
 
@@ -54,6 +56,3 @@ async def test_timestamps():
 
     except Exception as e:
         print(f'❌ Error: {e}')
-
-if __name__ == "__main__":
-    asyncio.run(test_timestamps())
