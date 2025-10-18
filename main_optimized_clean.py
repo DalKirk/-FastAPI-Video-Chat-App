@@ -512,24 +512,23 @@ def get_room_live_streams(room_id: str):
 @app.post("/rooms/{room_id}/video-upload")
 async def create_video_upload(room_id: str, upload_data: VideoUploadCreate):
     """Create a video upload for a room using Bunny.net Stream API"""
+    # Validate room exists
     if room_id not in rooms:
         raise HTTPException(status_code=404, detail="Room not found")
 
+    # If Bunny configuration is missing, return a safe mock response immediately
     if not bunny_enabled:
-        # Fallback to mock if Bunny.net not available
         mock_upload_id = str(uuid.uuid4())
         mock_upload_url = f"https://mock-upload.example.com/{mock_upload_id}"
-
         video_upload = VideoUpload(
             id=mock_upload_id,
             upload_url=mock_upload_url,
             status="mock_ready",
             room_id=room_id,
-            title=upload_data.title,
+            title=upload_data.title or "Untitled",
             created_at=datetime.utcnow()
         )
         video_uploads[mock_upload_id] = video_upload
-
         return {
             "id": video_upload.id,
             "upload_url": video_upload.upload_url,
@@ -538,6 +537,7 @@ async def create_video_upload(room_id: str, upload_data: VideoUploadCreate):
             "note": "Mock implementation - Bunny.net not configured"
         }
 
+    # If Bunny is enabled, attempt to create the upload but guard against all errors
     try:
         import requests
         headers = {
@@ -545,7 +545,6 @@ async def create_video_upload(room_id: str, upload_data: VideoUploadCreate):
             'Content-Type': 'application/json'
         }
 
-        # Create video upload with Bunny.net
         create_data = {
             "title": upload_data.title,
             "description": upload_data.description or "",
@@ -560,32 +559,33 @@ async def create_video_upload(room_id: str, upload_data: VideoUploadCreate):
         )
 
         if response.status_code == 201:
-            video_data = response.json()
+            try:
+                video_data = response.json()
+            except Exception:
+                # Bad response body from Bunny - fallback
+                raise
 
-            # Store upload info
+            guid = str(video_data.get('guid') or video_data.get('id') or uuid.uuid4())
             video_upload = VideoUpload(
-                id=str(video_data['guid']),
-                upload_url=f"https://video.bunnycdn.com/library/{BUNNY_LIBRARY_ID}/videos/{video_data['guid']}",
+                id=guid,
+                upload_url=f"https://video.bunnycdn.com/library/{BUNNY_LIBRARY_ID}/videos/{guid}",
                 status="ready",
                 room_id=room_id,
                 title=upload_data.title,
                 created_at=datetime.utcnow()
             )
+            video_uploads[guid] = video_upload
 
-            video_uploads[str(video_data['guid'])] = video_upload
-
-            # Store video asset info
-            video_assets[str(video_data['guid'])] = {
-                "id": str(video_data['guid']),
+            video_assets[guid] = {
+                "id": guid,
                 "title": upload_data.title,
                 "description": upload_data.description or "",
                 "room_id": room_id,
                 "status": "processing",
                 "created_at": datetime.utcnow().isoformat() + "Z",
-                "bunny_id": video_data['guid']
+                "bunny_id": guid
             }
 
-            # Notify room about new video upload
             upload_message = {
                 "type": "video_upload_created",
                 "upload_id": video_upload.id,
@@ -594,7 +594,11 @@ async def create_video_upload(room_id: str, upload_data: VideoUploadCreate):
                 "message": f"📹 Video upload '{upload_data.title}' ready",
                 "timestamp": datetime.utcnow().isoformat() + "Z"
             }
-            await manager.broadcast_to_room(json.dumps(upload_message), room_id)
+            # best-effort notify, but do not let failures bubble up
+            try:
+                await manager.broadcast_to_room(json.dumps(upload_message), room_id)
+            except Exception:
+                logger.exception("Failed to broadcast video_upload_created message")
 
             return {
                 "id": video_upload.id,
@@ -602,32 +606,30 @@ async def create_video_upload(room_id: str, upload_data: VideoUploadCreate):
                 "status": video_upload.status,
                 "title": video_upload.title
             }
-        else:
-            logger.error(f"Bunny.net API error: {response.status_code} - {response.text}")
-            raise Exception(f"Bunny.net API error: {response.status_code}")
+
+        # Non-201 from Bunny -> fallback
+        logger.error(f"Bunny.net API returned status {response.status_code}: {getattr(response, 'text', '')}")
+        raise Exception(f"Bunny.net API error: {response.status_code}")
 
     except Exception as e:
-        logger.error(f"Failed to create video upload: {e}")
-        # Fallback to mock on error
+        logger.exception("Error creating video upload - returning mock fallback")
         mock_upload_id = str(uuid.uuid4())
         mock_upload_url = f"https://mock-upload.example.com/{mock_upload_id}"
-
         video_upload = VideoUpload(
             id=mock_upload_id,
             upload_url=mock_upload_url,
             status="mock_ready",
             room_id=room_id,
-            title=upload_data.title,
+            title=upload_data.title or "Untitled",
             created_at=datetime.utcnow()
         )
         video_uploads[mock_upload_id] = video_upload
-
         return {
             "id": video_upload.id,
             "upload_url": video_upload.upload_url,
             "status": video_upload.status,
             "title": video_upload.title,
-            "note": f"Fallback to mock - Bunny.net error: {str(e)}"
+            "note": f"Fallback to mock - error: {str(e)}"
         }
 
 @app.get("/rooms/{room_id}/videos")

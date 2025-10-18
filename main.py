@@ -1,7 +1,9 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, ConfigDict
+from typing import Dict, List, Optional
 from typing import List, Dict, Optional
 from datetime import datetime
 import json
@@ -9,6 +11,10 @@ import uuid
 import os
 import base64
 import requests
+from dotenv import load_dotenv
+
+# Load .env (development). In production, set env vars via the host.
+load_dotenv()
 
 # FORCE RAILWAY REDEPLOYMENT - MUX CODE COMPLETELY REMOVED
 
@@ -16,118 +22,125 @@ import requests
 try:
     import requests
     BUNNY_AVAILABLE = True
-except ImportError:
-    BUNNY_AVAILABLE = False
-    print("⚠️ Requests not available - video features disabled")
+    # Validate room exists
+    if room_id not in rooms:
+        raise HTTPException(status_code=404, detail="Room not found")
 
-app = FastAPI(title="Chat API with Video", description="Real-time messaging API with WebSocket support and video streaming")
+    # If Bunny configuration is missing, return a safe mock response immediately
+    if not bunny_enabled:
+        mock_upload_id = str(uuid.uuid4())
+        mock_upload_url = f"https://mock-upload.example.com/{mock_upload_id}"
+        video_upload = VideoUpload(
+            id=mock_upload_id,
+            upload_url=mock_upload_url,
+            status="mock_ready",
+            room_id=room_id,
+            title=getattr(upload_data, 'title', '') or "Untitled",
+            created_at=datetime.utcnow()
+        )
+        video_uploads[mock_upload_id] = video_upload
+        return {
+            "id": video_upload.id,
+            "upload_url": video_upload.upload_url,
+            "status": video_upload.status,
+            "title": video_upload.title,
+            "note": "Mock implementation - Bunny.net not configured"
+        }
 
-# Startup event
-@app.on_event("startup")
-async def startup_event():
-    print("🚀 FastAPI server starting up...")
-    print(f"📊 Bunny.net enabled: {bunny_enabled}")
-    print(f"🌐 CORS origins: {len(app.user_middleware)} middleware configured")
-    print("✅ Server ready to accept connections")
+    # If Bunny is enabled, attempt to create the upload but guard against all errors
+    try:
+        import requests
+        headers = {
+            'AccessKey': BUNNY_API_KEY,
+            'Content-Type': 'application/json'
+        }
 
-# Shutdown event
-@app.on_event("shutdown")
-async def shutdown_event():
-    print("🛑 FastAPI server shutting down...")
+        create_data = {
+            "title": upload_data.title,
+            "description": upload_data.description or "",
+            "collectionId": BUNNY_COLLECTION_ID if BUNNY_COLLECTION_ID else None
+        }
 
-# Bunny.net Stream Configuration
-BUNNY_API_KEY = os.getenv("BUNNY_API_KEY", "")
-BUNNY_LIBRARY_ID = os.getenv("BUNNY_LIBRARY_ID", "")
-BUNNY_PULL_ZONE = os.getenv("BUNNY_PULL_ZONE", "")
-BUNNY_COLLECTION_ID = os.getenv("BUNNY_COLLECTION_ID", "")
+        response = requests.post(
+            f'https://video.bunnycdn.com/library/{BUNNY_LIBRARY_ID}/videos',
+            headers=headers,
+            json=create_data,
+            timeout=10
+        )
 
-# Initialize Bunny.net (Optional - graceful degradation if not available)
-bunny_enabled = BUNNY_AVAILABLE and BUNNY_API_KEY and BUNNY_LIBRARY_ID and BUNNY_PULL_ZONE
+        if response.status_code == 201:
+            try:
+                video_data = response.json()
+            except Exception:
+                # Bad response body from Bunny - fallback
+                raise
 
-if bunny_enabled:
-    print("✅ Bunny.net Stream configured successfully")
-else:
-    print("⚠️ Bunny.net not configured - video features disabled")
-    print(f"   BUNNY_API_KEY: {'✓' if BUNNY_API_KEY else '✗'}")
-    print(f"   BUNNY_LIBRARY_ID: {'✓' if BUNNY_LIBRARY_ID else '✗'}")
-    print(f"   BUNNY_PULL_ZONE: {'✓' if BUNNY_PULL_ZONE else '✗'}")
+            guid = str(video_data.get('guid') or video_data.get('id') or uuid.uuid4())
+            video_upload = VideoUpload(
+                id=guid,
+                upload_url=f"https://video.bunnycdn.com/library/{BUNNY_LIBRARY_ID}/videos/{guid}",
+                status="ready",
+                room_id=room_id,
+                title=upload_data.title,
+                created_at=datetime.utcnow()
+            )
+            video_uploads[guid] = video_upload
 
-# Add CORS middleware for mobile browser compatibility
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",  # Local development
-        "https://localhost:3000",
-        "https://next-js-14-front-end-for-chat-plast.vercel.app",  # Primary Vercel frontend
-        "https://video-chat-frontend-ruby.vercel.app",  # Alternative Vercel frontend
-        "*"  # Allow all origins for development
-    ],
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
-)
+            video_assets[guid] = {
+                "id": guid,
+                "title": upload_data.title,
+                "description": upload_data.description or "",
+                "room_id": room_id,
+                "status": "processing",
+                "created_at": datetime.utcnow().isoformat() + "Z",
+                "bunny_id": guid
+            }
 
-# Data Models
-class User(BaseModel):
-    id: str
-    username: str
-    joined_at: str
-    
-    class Config:
-        arbitrary_types_allowed = True
+            upload_message = {
+                "type": "video_upload_created",
+                "upload_id": video_upload.id,
+                "upload_url": video_upload.upload_url,
+                "title": video_upload.title,
+                "message": f"📹 Video upload '{upload_data.title}' ready",
+                "timestamp": datetime.utcnow().isoformat() + "Z"
+            }
+            # best-effort notify, but do not let failures bubble up
+            try:
+                await manager.broadcast_to_room(json.dumps(upload_message), room_id)
+            except Exception:
+                logger.exception("Failed to broadcast video_upload_created message")
 
-class Message(BaseModel):
-    id: str
-    user_id: str
-    username: str
-    room_id: str
-    content: str
-    timestamp: str
-    
-    class Config:
-        arbitrary_types_allowed = True
+            return {
+                "id": video_upload.id,
+                "upload_url": video_upload.upload_url,
+                "status": video_upload.status,
+                "title": video_upload.title
+            }
 
-class Room(BaseModel):
-    id: str
-    name: str
-    created_at: str
-    users: List[str] = []
-    
-    class Config:
-        arbitrary_types_allowed = True
+        # Non-201 from Bunny -> fallback
+        logger.error(f"Bunny.net API returned status {response.status_code}: {getattr(response, 'text', '')}")
+        raise Exception(f"Bunny.net API error: {response.status_code}")
 
-class MessageCreate(BaseModel):
-    content: str
-
-class RoomCreate(BaseModel):
-    name: str
-
-class UserCreate(BaseModel):
-    username: str
-
-class JoinRoomRequest(BaseModel):
-    user_id: str
-
-# Bunny.net Video Models
-class LiveStreamCreate(BaseModel):
-    title: str
-
-class VideoUploadCreate(BaseModel):
-    title: str
-    description: Optional[str] = None
-
-class VideoUpload(BaseModel):
-    id: str
-    upload_url: str
-    status: str
-    room_id: str
-    title: str
-    created_at: str
-    
-    class Config:
-        arbitrary_types_allowed = True
-
-class LiveStream(BaseModel):
+    except Exception as e:
+        logger.exception("Error creating video upload - returning mock fallback")
+        mock_upload_id = str(uuid.uuid4())
+        mock_upload_url = f"https://mock-upload.example.com/{mock_upload_id}"
+        video_upload = VideoUpload(
+            id=mock_upload_id,
+            upload_url=mock_upload_url,
+            status="mock_ready",
+            room_id=room_id,
+            title=getattr(upload_data, 'title', '') or "Untitled",
+            created_at=datetime.utcnow()
+        )
+        video_uploads[mock_upload_id] = video_upload
+        return {
+            "id": video_upload.id,
+            "upload_url": video_upload.upload_url,
+            "status": video_upload.status,
+            "title": video_upload.title,
+            "note": f"Fallback to mock - error: {str(e)}"
+        }
     id: str
     stream_key: str
     playback_id: str
@@ -136,8 +149,7 @@ class LiveStream(BaseModel):
     title: str
     created_at: str
     
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 # In-memory storage (in production, use a database)
 rooms: Dict[str, Room] = {}
@@ -322,7 +334,7 @@ def join_room(room_id: str, join_data: JoinRoomRequest):
 
 # Bunny.net Video Endpoints
 @app.post("/rooms/{room_id}/live-stream")
-async def create_live_stream(room_id: str, stream_data: LiveStreamCreate):
+async def create_live_stream(room_id: str, stream_data: StreamCreate):
     """Create a live stream for a room using Bunny.net Stream API"""
     if room_id not in rooms:
         raise HTTPException(status_code=404, detail="Room not found")
@@ -576,21 +588,22 @@ def get_room_videos(room_id: str):
     return room_videos
 
 @app.post("/bunny-webhook")
-async def bunny_webhook(request: dict):
+async def bunny_webhook(request: Request):
     """Handle Bunny.net webhooks for video processing updates"""
     try:
-        event_type = request.get("EventType")
-        video_id = request.get("VideoGuid")
-        
+        webhook_data = await request.json()
+        event_type = webhook_data.get("EventType")
+        video_id = webhook_data.get("VideoGuid")
+
         if event_type == "VideoFileCreated":
             # Video upload completed and processing started
             if video_id and video_id in video_assets:
                 video = video_assets[video_id]
-                room_id = video["room_id"]
-                
+                room_id = video.get("room_id")
+
                 # Update video status
                 video["status"] = "processing"
-                
+
                 # Notify room about video processing
                 processing_message = {
                     "type": "video_processing",
@@ -600,30 +613,30 @@ async def bunny_webhook(request: dict):
                     "timestamp": datetime.utcnow().isoformat() + "Z"
                 }
                 await manager.broadcast_to_room(json.dumps(processing_message), room_id)
-                
+
         elif event_type == "VideoFileEncoded":
             # Video encoding completed
             if video_id and video_id in video_assets:
                 video = video_assets[video_id]
-                room_id = video["room_id"]
-                
+                room_id = video.get("room_id")
+
                 # Update video status
                 video["status"] = "ready"
-                
+
                 # Get video details from Bunny.net
                 headers = {
                     'AccessKey': BUNNY_API_KEY,
                     'Content-Type': 'application/json'
                 }
-                
+
                 response = requests.get(
                     f'https://video.bunnycdn.com/library/{BUNNY_LIBRARY_ID}/videos/{video_id}',
                     headers=headers
                 )
-                
+
                 if response.status_code == 200:
                     video_data = response.json()
-                    
+
                     # Notify room about video ready
                     video_ready_message = {
                         "type": "video_ready",
@@ -634,9 +647,9 @@ async def bunny_webhook(request: dict):
                         "timestamp": datetime.utcnow().isoformat() + "Z"
                     }
                     await manager.broadcast_to_room(json.dumps(video_ready_message), room_id)
-        
+
         return {"status": "received"}
-        
+
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Webhook error: {e}")
 
