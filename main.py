@@ -687,7 +687,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
         }
         await manager.broadcast_to_room(json.dumps(leave_message), room_id)
 
-# Video-enhanced mobile-optimized chat interface with Mux integration
+# Video-enhanced mobile-optimized chat interface with Bunny.net Stream integration
 @app.get("/chat", response_class=HTMLResponse)
 def get_chat_page():
     """Serve a comprehensive chat interface with Mux video capabilities"""
@@ -758,7 +758,7 @@ def get_chat_page():
 <div id="streamInfo" class="live-stream-info" style="display:none">
 <h4>🔴 Stream Created!</h4>
 <p><strong>Stream Key:</strong> <span id="streamKey"></span></p>
-<p><strong>RTMP URL:</strong> rtmp://live.mux.com/live/</p>
+<p><strong>RTMP URL:</strong> rtmp://rtmp.bunnycdn.com/live/</p>
 <p><small>Use in OBS or streaming software</small></p>
 </div>
 </div>
@@ -833,12 +833,27 @@ const time=new Date(data.timestamp.endsWith('Z')?data.timestamp:data.timestamp+'
 messageDiv.innerHTML='<strong>'+data.username+'</strong> <small>('+time+')</small><br>'+data.content}
 else if(data.type==='live_stream_created'){
 messageDiv.className='message live-stream-message';
-messageDiv.innerHTML='<strong>🔴 Live Stream Started</strong><br>'+data.message+'<br><mux-player playback-id="'+data.playback_id+'" metadata-video-title="'+data.title+'" controls class="video-player"></mux-player>'}
+messageDiv.innerHTML='<strong>🔴 Live Stream Started</strong><br>'+data.message+'<br><video controls class="video-player" preload="metadata"><source src="'+data.pull_url+'" type="application/x-mpegURL"></video>'}
 else if(data.type==='video_ready'){
 messageDiv.className='message video-message';
-messageDiv.innerHTML='<strong>🎥 Video Ready</strong><br>'+data.message+'<br><mux-player playback-id="'+data.playback_id+'" metadata-video-title="'+data.title+'" controls class="video-player"></mux-player>'}
+messageDiv.innerHTML='<strong>🎥 Video Ready</strong><br>'+data.message+'<br><video controls class="video-player" preload="metadata"><source src="'+data.playback_url+'" type="application/x-mpegURL"></video>'}
 else{messageDiv.className='message system-message';messageDiv.textContent=data.message}
-chatArea.appendChild(messageDiv);chatArea.scrollTop=chatArea.scrollHeight}
+chatArea.appendChild(messageDiv);
+// Initialize HLS.js for any video elements in the new message
+const videos = messageDiv.querySelectorAll('video');
+videos.forEach(video => {
+  const source = video.querySelector('source');
+  if (source && source.type === 'application/x-mpegURL') {
+    if (Hls.isSupported()) {
+      const hls = new Hls();
+      hls.loadSource(source.src);
+      hls.attachMedia(video);
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = source.src;
+    }
+  }
+});
+chatArea.scrollTop=chatArea.scrollHeight}
 async function createUser(){
 const username=document.getElementById('username').value.trim();
 if(!username){alert('Enter username');return}
