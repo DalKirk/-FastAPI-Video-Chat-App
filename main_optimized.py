@@ -176,6 +176,7 @@ default_frontend_origins = [
   "http://192.168.1.119:3000",
   "https://video-chat-frontend-ruby.vercel.app",
   "https://next-js-14-front-end-for-chat-plast.vercel.app",
+  "https://chat-plaster-c7gpbh5x4-dalkirks-projects.vercel.app",
 ]
 
 # Allow overriding via comma-separated environment variable ALLOWED_ORIGINS
