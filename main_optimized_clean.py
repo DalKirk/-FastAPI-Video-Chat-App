@@ -299,6 +299,36 @@ async def test_bunny():
             "error": str(e)
         }
 
+
+@app.get("/_debug")
+def debug_info():
+    """Lightweight debug endpoint to help diagnose deployment/runtime configuration."""
+    info = {
+        "bunny_enabled": bunny_enabled,
+        "environment": os.getenv("ENVIRONMENT", "development"),
+        "allowed_origins_sample": allowed_origins[:10] if isinstance(globals().get('allowed_origins'), list) else None,
+        "active_rooms": len(rooms),
+        "active_users": len(users),
+    }
+    # Try to read last git commit if available (best-effort)
+    try:
+        git_head = None
+        head_path = os.path.join(os.path.dirname(__file__), '.git', 'HEAD')
+        if os.path.exists(head_path):
+            with open(head_path, 'r') as fh:
+                ref = fh.read().strip()
+            if ref.startswith('ref:'):
+                ref_path = os.path.join(os.path.dirname(__file__), '.git', ref.split('ref: ')[1].strip())
+                if os.path.exists(ref_path):
+                    with open(ref_path, 'r') as fh:
+                        git_head = fh.read().strip()
+            else:
+                git_head = ref
+        info['git_head'] = git_head
+    except Exception:
+        info['git_head'] = None
+    return info
+
 # User Management
 @app.post("/users", response_model=User)
 def create_user(user_data: UserCreate):
