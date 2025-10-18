@@ -10,11 +10,11 @@ import os
 import base64
 import requests
 
-# Optional Mux imports - CORRECTED for mux-python 3.x
+# Optional Mux imports - CORRECTED for mux-python 5.1.0
 try:
     from mux_python import ApiClient as MuxApiClient, Configuration as MuxConfiguration
     from mux_python.api import direct_uploads_api, live_streams_api, assets_api
-    from mux_python.model import CreateDirectUploadRequest, CreateLiveStreamRequest
+    from mux_python import CreateUploadRequest, CreateLiveStreamRequest
     MUX_AVAILABLE = True
 except ImportError:
     MUX_AVAILABLE = False
@@ -181,13 +181,13 @@ async def health_check():
     return {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat() + "Z",
-        "version": "mux-integration-fixed",
+        "version": "mux-5.1.0-integration",
         "services": {
             "api": "running",
             "websocket": "running",
             "mux": mux_status
         },
-        "note": "Mux integration updated to use correct SDK v3.x API"
+        "note": "Mux integration updated to use correct mux-python 5.1.0 API"
     }
 
 # Test Mux endpoint
@@ -346,7 +346,7 @@ async def create_live_stream(room_id: str, stream_data: LiveStreamCreate):
         }
     
     try:
-        # CORRECTED: Use proper mux-python 3.x API
+        # CORRECTED: Use proper mux-python 5.1.0 API
         create_request = CreateLiveStreamRequest(
             playback_policy=["public"],
             new_asset_settings={
@@ -356,7 +356,7 @@ async def create_live_stream(room_id: str, stream_data: LiveStreamCreate):
         )
         
         # CORRECTED: Use correct API method
-        stream_response = live_streams_api.create_live_stream(create_request)
+        stream_response = live_streams_api.LiveStreamsApi(MuxApiClient(configuration)).create_live_stream(create_request)
         
         # Store live stream info
         live_stream = LiveStream(
@@ -458,8 +458,8 @@ async def create_video_upload(room_id: str, upload_data: VideoUploadCreate):
         }
     
     try:
-        # CORRECTED: Use proper mux-python 3.x API
-        create_request = CreateDirectUploadRequest(
+        # CORRECTED: Use proper mux-python 5.1.0 API
+        create_request = CreateUploadRequest(
             new_asset_settings={
                 "playback_policies": ["public"],
                 "mp4_support": "standard"
@@ -469,7 +469,7 @@ async def create_video_upload(room_id: str, upload_data: VideoUploadCreate):
         )
         
         # CORRECTED: Use correct API method
-        upload_response = direct_uploads_api.create_direct_upload(create_request)
+        upload_response = direct_uploads_api.DirectUploadsApi(MuxApiClient(configuration)).create_direct_upload(create_request)
         
         # Store upload info
         video_upload = VideoUpload(
