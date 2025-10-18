@@ -15,9 +15,9 @@ COPY main.py .
 # Expose the port
 EXPOSE 8000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:${PORT:-8000}/health || exit 1
+# Simple health check for Railway
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD python -c "import http.client; c=http.client.HTTPConnection('localhost', int(__import__('os').getenv('PORT', '8000'))); c.request('GET', '/health'); r=c.getresponse(); exit(0 if r.status == 200 else 1)"
 
 # Run the application - use PORT env variable if available, otherwise default to 8000
 CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}

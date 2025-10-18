@@ -20,19 +20,35 @@ except ImportError:
 
 app = FastAPI(title="Chat API with Video", description="Real-time messaging API with WebSocket support and video streaming")
 
+# Startup event
+@app.on_event("startup")
+async def startup_event():
+    print("🚀 FastAPI server starting up...")
+    print(f"📊 Bunny.net enabled: {bunny_enabled}")
+    print(f"🌐 CORS origins: {len(app.user_middleware)} middleware configured")
+    print("✅ Server ready to accept connections")
+
+# Shutdown event
+@app.on_event("shutdown")
+async def shutdown_event():
+    print("🛑 FastAPI server shutting down...")
+
 # Bunny.net Stream Configuration
-BUNNY_API_KEY = os.getenv("BUNNY_API_KEY", "7b796ba2-b5fd-4d87-ada3-4cb491ac38ded41dc65f-dfa8-42b2-b823-985118287017")
-BUNNY_LIBRARY_ID = os.getenv("BUNNY_LIBRARY_ID", "your_library_id")  # You'll need to create a library
-BUNNY_PULL_ZONE = os.getenv("BUNNY_PULL_ZONE", "your_pull_zone")    # Your CDN pull zone
-BUNNY_COLLECTION_ID = os.getenv("BUNNY_COLLECTION_ID", "")          # Optional collection
+BUNNY_API_KEY = os.getenv("BUNNY_API_KEY", "")
+BUNNY_LIBRARY_ID = os.getenv("BUNNY_LIBRARY_ID", "")
+BUNNY_PULL_ZONE = os.getenv("BUNNY_PULL_ZONE", "")
+BUNNY_COLLECTION_ID = os.getenv("BUNNY_COLLECTION_ID", "")
 
 # Initialize Bunny.net (Optional - graceful degradation if not available)
-bunny_enabled = BUNNY_AVAILABLE and BUNNY_API_KEY and BUNNY_LIBRARY_ID
+bunny_enabled = BUNNY_AVAILABLE and BUNNY_API_KEY and BUNNY_LIBRARY_ID and BUNNY_PULL_ZONE
 
 if bunny_enabled:
     print("✅ Bunny.net Stream configured successfully")
 else:
     print("⚠️ Bunny.net not configured - video features disabled")
+    print(f"   BUNNY_API_KEY: {'✓' if BUNNY_API_KEY else '✗'}")
+    print(f"   BUNNY_LIBRARY_ID: {'✓' if BUNNY_LIBRARY_ID else '✗'}")
+    print(f"   BUNNY_PULL_ZONE: {'✓' if BUNNY_PULL_ZONE else '✗'}")
 
 # Add CORS middleware for mobile browser compatibility
 app.add_middleware(
