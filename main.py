@@ -90,7 +90,7 @@ class UserCreate(BaseModel):
 class JoinRoomRequest(BaseModel):
     user_id: str
 
-# Mux Video Models
+# Bunny.net Video Models
 class LiveStreamCreate(BaseModel):
     title: str
 
@@ -690,7 +690,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
 # Video-enhanced mobile-optimized chat interface with Bunny.net Stream integration
 @app.get("/chat", response_class=HTMLResponse)
 def get_chat_page():
-    """Serve a comprehensive chat interface with Mux video capabilities"""
+    """Serve a comprehensive chat interface with Bunny.net video capabilities"""
     html_content = """<!DOCTYPE html>
 <html><head><title>FastAPI Chat with Video</title><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
