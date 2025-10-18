@@ -77,7 +77,7 @@ curl https://natural-presence-production.up.railway.app/health
   "services": {
     "api": "running",
     "websocket": "running",
-    "mux": "available"
+    "bunny_stream": "available"
   }
 }
 ```

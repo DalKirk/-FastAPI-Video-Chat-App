@@ -222,7 +222,8 @@
         try{
           await fetch('/rooms/'+roomId+'/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:currentUser.id})})
         }catch(error){console.error('Error joining room:',error)}
-        const wsUrl=(window.location.protocol==='https:'?'wss://':'ws://')+window.location.host+'/ws/'+roomId+'/'+currentUser.id;
+  const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = wsProto + '//' + window.location.host + '/ws/' + encodeURIComponent(roomId) + '/' + encodeURIComponent(currentUser.id);
         ws=new WebSocket(wsUrl);
         ws.onopen=function(){
           document.getElementById('setup').style.display='none';

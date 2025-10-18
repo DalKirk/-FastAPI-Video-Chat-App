@@ -6,7 +6,7 @@
 2. **Repository name:** `FastAPI-Video-Chat-App`
 3. **Description:** 
    ```
-   Complete real-time video chat application with FastAPI backend, Next.js frontend, WebSocket messaging, Mux video streaming, deployed on Railway and Vercel.
+   Complete real-time video chat application with FastAPI backend, Next.js frontend, WebSocket messaging, Bunny.net Stream video streaming, deployed on Railway and Vercel.
    ```
 4. **Set to Public** ✅
 5. **DON'T initialize** with README (we have our own)
@@ -29,7 +29,7 @@ After pushing, add these topics on GitHub:
 - `websocket` 
 - `real-time-chat`
 - `video-streaming`
-- `mux-api`
+- `bunny-stream`
 - `railway`
 - `vercel`
 - `nextjs`
@@ -49,7 +49,7 @@ After pushing, add these topics on GitHub:
 ### **🛠️ Complete Tech Stack:**
 - FastAPI + Python backend
 - Next.js 14 + TypeScript frontend  
-- Mux video streaming API
+- Bunny.net Stream video streaming API
 - Railway + Vercel deployment
 - WebSocket real-time messaging
 - Docker containerization
@@ -63,7 +63,7 @@ After pushing, add these topics on GitHub:
 ### **🎬 Video Features:**
 - Live streaming creation
 - Video upload and playback
-- Mux Player integration
+- HLS.js video player integration
 - Real-time video notifications
 
 ---

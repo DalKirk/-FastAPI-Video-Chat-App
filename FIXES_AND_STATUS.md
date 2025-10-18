@@ -19,7 +19,7 @@
 ### **Backend (Railway):**
 1. **✅ Redeployed** - Container starting up
 2. **✅ Health Check Available** - Will be at `/health` endpoint
-3. **✅ Mux Integration** - Configured and ready
+3. **✅ Bunny.net Stream Integration** - Configured and ready
 4. **✅ CORS Settings** - Configured for both frontend URLs
 
 ### **Frontend Configuration:**
@@ -126,7 +126,7 @@ git push
 ### **3. Test Backend Locally:**
 ```bash
 cd "c:\Users\g-kd\OneDrive\Desktop\My_FastAPI_Python"
-python main_optimized.py
+python main.py
 # Should start on http://localhost:8000
 ```
 
@@ -139,7 +139,7 @@ Vercel Frontend (Next.js 14)
     ↓ HTTP/WebSocket
 Railway Backend (FastAPI)
     ↓ API Calls
-Mux Video Service
+Bunny.net Stream Video Service
 ```
 
 ## ⏱️ **Expected Resolution:**

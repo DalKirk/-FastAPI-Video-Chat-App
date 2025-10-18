@@ -7,7 +7,7 @@ import os
 import json
 import uuid
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 from contextlib import asynccontextmanager
 
@@ -15,7 +15,7 @@ from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 
 # FastAPI and related imports
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, validator
@@ -250,7 +250,7 @@ async def health_check():
 
     return {
         "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
         "version": "2.0.0",
         "environment": os.getenv("ENVIRONMENT", "development"),
         "services": {
@@ -337,7 +337,7 @@ def create_user(user_data: UserCreate):
     user = User(
         id=user_id,
         username=user_data.username,
-        joined_at=datetime.utcnow()
+        joined_at=datetime.now(timezone.utc)
     )
     users[user_id] = user
     logger.info(f"Created user: {user.username} ({user_id})")
@@ -356,7 +356,7 @@ def create_room(room_data: RoomCreate):
     room = Room(
         id=room_id,
         name=room_data.name,
-        created_at=datetime.utcnow()
+        created_at=datetime.now(timezone.utc)
     )
     rooms[room_id] = room
     messages[room_id] = []
@@ -429,7 +429,7 @@ async def create_live_stream(room_id: str, stream_data: StreamCreate):
             status="mock_ready",
             room_id=room_id,
             title=stream_data.title,
-            created_at=datetime.utcnow()
+            created_at=datetime.now(timezone.utc)
         )
         live_streams[mock_stream_id] = live_stream
 
@@ -463,7 +463,8 @@ async def create_live_stream(room_id: str, stream_data: StreamCreate):
             timeout=10
         )
 
-        if response.status_code == 201:
+        # Bunny may return 200 or 201 with a JSON body containing the guid
+        if response.status_code in (200, 201):
             stream_data_response = response.json()
 
             # Store live stream info
@@ -474,7 +475,7 @@ async def create_live_stream(room_id: str, stream_data: StreamCreate):
                 status="ready",
                 room_id=room_id,
                 title=stream_data.title,
-                created_at=datetime.utcnow()
+                created_at=datetime.now(timezone.utc)
             )
 
             live_streams[str(stream_data_response['id'])] = live_stream
@@ -486,7 +487,7 @@ async def create_live_stream(room_id: str, stream_data: StreamCreate):
                 "playback_id": live_stream.playback_id,
                 "title": live_stream.title,
                 "message": f"🔴 Live stream '{stream_data.title}' started",
-                "timestamp": datetime.utcnow().isoformat() + "Z"
+                "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
             }
             await manager.broadcast_to_room(json.dumps(stream_message), room_id)
 
@@ -516,7 +517,7 @@ async def create_live_stream(room_id: str, stream_data: StreamCreate):
             status="mock_ready",
             room_id=room_id,
             title=stream_data.title,
-            created_at=datetime.utcnow()
+            created_at=datetime.now(timezone.utc)
         )
         live_streams[mock_stream_id] = live_stream
 
@@ -540,127 +541,148 @@ def get_room_live_streams(room_id: str):
     return room_streams
 
 @app.post("/rooms/{room_id}/video-upload")
-async def create_video_upload(room_id: str, upload_data: VideoUploadCreate):
-    """Create a video upload for a room using Bunny.net Stream API"""
-    # Validate room exists
+async def create_video_upload(room_id: str, upload_data: VideoUploadCreate, request: Request):
+    """Create a video upload for a room.
+
+    This endpoint returns a same-origin upload URL ("/upload-proxy/{id}") so the browser can PUT the file
+    directly to the backend (avoids cross-origin PUTs and CORS issues). The backend will accept the upload,
+    store a file locally and mark processing; optionally this can be proxied to Bunny.net server-side if configured.
+    """
     if room_id not in rooms:
         raise HTTPException(status_code=404, detail="Room not found")
 
-    # If Bunny configuration is missing, return a safe mock response immediately
-    if not bunny_enabled:
-        mock_upload_id = str(uuid.uuid4())
-        mock_upload_url = f"https://mock-upload.example.com/{mock_upload_id}"
-        video_upload = VideoUpload(
-            id=mock_upload_id,
-            upload_url=mock_upload_url,
-            status="mock_ready",
-            room_id=room_id,
-            title=upload_data.title or "Untitled",
-            created_at=datetime.utcnow()
-        )
-        video_uploads[mock_upload_id] = video_upload
-        return {
-            "id": video_upload.id,
-            "upload_url": video_upload.upload_url,
-            "status": video_upload.status,
-            "title": video_upload.title,
-            "note": "Mock implementation - Bunny.net not configured"
-        }
+    # Ensure title present
+    title = (upload_data.title or "").strip() or "Untitled"
 
-    # If Bunny is enabled, attempt to create the upload but guard against all errors
+    # Create an internal upload id and register a VideoUpload record
+    upload_id = str(uuid.uuid4())
+    # Build a same-origin upload URL using the request base
+    base = str(request.base_url).rstrip('/')
+    upload_url = f"{base}/upload-proxy/{upload_id}"
+
+    video_upload = VideoUpload(
+        id=upload_id,
+        upload_url=upload_url,
+        status="pending",
+        room_id=room_id,
+        title=title,
+        created_at=datetime.now(timezone.utc)
+    )
+    video_uploads[upload_id] = video_upload
+
+    # Add a lightweight video asset record to track status
+    video_assets[upload_id] = {
+        "id": upload_id,
+        "title": title,
+        "description": upload_data.description or "",
+        "room_id": room_id,
+        "status": "pending",
+        "created_at": datetime.now(timezone.utc).isoformat() + "Z",
+    }
+
+    # Notify room that an upload entry was created
+    upload_message = {
+        "type": "video_upload_created",
+        "upload_id": video_upload.id,
+        "upload_url": video_upload.upload_url,
+        "title": video_upload.title,
+        "message": f"📹 Video upload '{title}' ready. Upload to the provided URL.",
+        "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
+    }
     try:
-        import requests
-        headers = {
-            'AccessKey': BUNNY_API_KEY,
-            'Content-Type': 'application/json'
-        }
+        await manager.broadcast_to_room(json.dumps(upload_message), room_id)
+    except Exception:
+        logger.exception("Failed to broadcast video_upload_created message")
 
-        create_data = {
-            "title": upload_data.title,
-            "description": upload_data.description or "",
-            "collectionId": BUNNY_COLLECTION_ID if BUNNY_COLLECTION_ID else None
-        }
+    return {
+        "id": video_upload.id,
+        "upload_url": video_upload.upload_url,
+        "status": video_upload.status,
+        "title": video_upload.title
+    }
 
-        response = requests.post(
-            f'https://video.bunnycdn.com/library/{BUNNY_LIBRARY_ID}/videos',
-            headers=headers,
-            json=create_data,
-            timeout=10
-        )
 
-        if response.status_code == 201:
-            try:
-                video_data = response.json()
-            except Exception:
-                # Bad response body from Bunny - fallback
-                raise
+@app.put('/upload-proxy/{upload_id}')
+async def upload_proxy(upload_id: str, request: Request, background_tasks: BackgroundTasks):
+    """Accepts a PUT from the browser with the video bytes, saves a local file and marks the video as processing.
 
-            guid = str(video_data.get('guid') or video_data.get('id') or uuid.uuid4())
-            video_upload = VideoUpload(
-                id=guid,
-                upload_url=f"https://video.bunnycdn.com/library/{BUNNY_LIBRARY_ID}/videos/{guid}",
-                status="ready",
-                room_id=room_id,
-                title=upload_data.title,
-                created_at=datetime.utcnow()
-            )
-            video_uploads[guid] = video_upload
+    This keeps the browser upload same-origin and avoids CORS issues when the external CDN isn't configured.
+    """
+    if upload_id not in video_uploads:
+        raise HTTPException(status_code=404, detail='Upload id not found')
 
-            video_assets[guid] = {
-                "id": guid,
-                "title": upload_data.title,
-                "description": upload_data.description or "",
-                "room_id": room_id,
-                "status": "processing",
-                "created_at": datetime.utcnow().isoformat() + "Z",
-                "bunny_id": guid
-            }
-
-            upload_message = {
-                "type": "video_upload_created",
-                "upload_id": video_upload.id,
-                "upload_url": video_upload.upload_url,
-                "title": video_upload.title,
-                "message": f"📹 Video upload '{upload_data.title}' ready",
-                "timestamp": datetime.utcnow().isoformat() + "Z"
-            }
-            # best-effort notify, but do not let failures bubble up
-            try:
-                await manager.broadcast_to_room(json.dumps(upload_message), room_id)
-            except Exception:
-                logger.exception("Failed to broadcast video_upload_created message")
-
-            return {
-                "id": video_upload.id,
-                "upload_url": video_upload.upload_url,
-                "status": video_upload.status,
-                "title": video_upload.title
-            }
-
-        # Non-201 from Bunny -> fallback
-        logger.error(f"Bunny.net API returned status {response.status_code}: {getattr(response, 'text', '')}")
-        raise Exception(f"Bunny.net API error: {response.status_code}")
-
+    # Read bytes (be cautious about very large files in memory; for production stream to disk)
+    try:
+        body = await request.body()
     except Exception as e:
-        logger.exception("Error creating video upload - returning mock fallback")
-        mock_upload_id = str(uuid.uuid4())
-        mock_upload_url = f"https://mock-upload.example.com/{mock_upload_id}"
-        video_upload = VideoUpload(
-            id=mock_upload_id,
-            upload_url=mock_upload_url,
-            status="mock_ready",
-            room_id=room_id,
-            title=upload_data.title or "Untitled",
-            created_at=datetime.utcnow()
-        )
-        video_uploads[mock_upload_id] = video_upload
-        return {
-            "id": video_upload.id,
-            "upload_url": video_upload.upload_url,
-            "status": video_upload.status,
-            "title": video_upload.title,
-            "note": f"Fallback to mock - error: {str(e)}"
+        logger.error(f'Failed to read uploaded bytes for {upload_id}: {e}')
+        raise HTTPException(status_code=400, detail='Failed to read uploaded file')
+
+    # Ensure uploads dir exists
+    uploads_dir = os.path.join(os.path.dirname(__file__), 'uploads')
+    os.makedirs(uploads_dir, exist_ok=True)
+
+    # Save file locally
+    filename = f"{upload_id}.bin"
+    file_path = os.path.join(uploads_dir, filename)
+    try:
+        with open(file_path, 'wb') as fh:
+            fh.write(body)
+    except Exception as e:
+        logger.error(f'Failed to write uploaded file for {upload_id}: {e}')
+        raise HTTPException(status_code=500, detail='Failed to store uploaded file')
+
+    # Update internal records
+    video_uploads[upload_id].status = 'uploaded'
+    video_assets[upload_id]['status'] = 'processing'
+    video_assets[upload_id]['local_path'] = file_path
+
+    # Broadcast processing message
+    try:
+        processing_message = {
+            'type': 'video_processing',
+            'video_id': upload_id,
+            'title': video_assets[upload_id]['title'],
+            'message': f"🎬 Video '{video_assets[upload_id]['title']}' uploaded and processing started",
+            'timestamp': datetime.now(timezone.utc).isoformat() + 'Z'
         }
+        await manager.broadcast_to_room(json.dumps(processing_message), video_assets[upload_id]['room_id'])
+    except Exception:
+        logger.exception('Failed to broadcast processing message')
+
+    # Schedule a background task to simulate processing and mark ready (or proxy to Bunny if desired)
+    def mark_ready(upload_id_local=upload_id):
+        try:
+            # Lightweight simulation -- in production you'd start background jobs or upload to Bunny here
+            import time
+            time.sleep(2)
+            video_assets[upload_id_local]['status'] = 'ready'
+            # Compose playback URL - prefer Bunny pull zone if configured
+            if bunny_enabled and BUNNY_PULL_ZONE:
+                playback = f"https://{BUNNY_PULL_ZONE}.b-cdn.net/{upload_id_local}/playlist.m3u8"
+            else:
+                playback = f"/uploads/{upload_id_local}.mp4"
+
+            ready_message = {
+                'type': 'video_ready',
+                'video_id': upload_id_local,
+                'playback_url': playback,
+                'title': video_assets[upload_id_local]['title'],
+                'message': f"🎥 Video '{video_assets[upload_id_local]['title']}' is ready to watch",
+                'timestamp': datetime.now(timezone.utc).isoformat() + 'Z'
+            }
+            # Fire-and-forget broadcast
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(manager.broadcast_to_room(json.dumps(ready_message), video_assets[upload_id_local]['room_id']))
+            loop.close()
+        except Exception:
+            logger.exception('Error in mark_ready background task')
+
+    background_tasks.add_task(mark_ready)
+
+    return { 'status': 'uploaded', 'upload_id': upload_id }
 
 @app.get("/rooms/{room_id}/videos")
 def get_room_videos(room_id: str):
@@ -698,7 +720,7 @@ async def bunny_webhook(request: Request):
                     "video_id": video_id,
                     "title": video["title"],
                     "message": f"🎬 Video '{video['title']}' uploaded and processing started",
-                    "timestamp": datetime.utcnow().isoformat() + "Z"
+                    "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
                 }
                 await manager.broadcast_to_room(json.dumps(processing_message), room_id)
 
@@ -718,7 +740,7 @@ async def bunny_webhook(request: Request):
                     "playback_url": f"https://{BUNNY_PULL_ZONE}.b-cdn.net/{video_id}/playlist.m3u8",
                     "title": video["title"],
                     "message": f"🎥 Video '{video['title']}' is ready to watch",
-                    "timestamp": datetime.utcnow().isoformat() + "Z"
+                    "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
                 }
                 await manager.broadcast_to_room(json.dumps(video_ready_message), room_id)
 
@@ -750,7 +772,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
     join_message = {
         "type": "user_joined",
         "message": f"{user.username} joined the chat",
-        "timestamp": datetime.utcnow().isoformat() + "Z"
+        "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
     }
     await manager.broadcast_to_room(json.dumps(join_message), room_id)
 
@@ -775,7 +797,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
                 username=user.username,
                 room_id=room_id,
                 content=message_data["content"].strip(),
-                timestamp=datetime.utcnow().isoformat() + "Z"
+                timestamp=datetime.now(timezone.utc).isoformat() + "Z"
             )
 
             # Store message
@@ -797,7 +819,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
         leave_message = {
             "type": "user_left",
             "message": f"{user.username} left the chat",
-            "timestamp": datetime.utcnow().isoformat() + "Z"
+            "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
         }
         await manager.broadcast_to_room(json.dumps(leave_message), room_id)
         logger.info(f"WebSocket disconnected for user {user.username}")
@@ -1004,7 +1026,8 @@ currentRoom={id:roomId,name:roomName};
 try{
 await fetch('/rooms/'+roomId+'/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:currentUser.id})}
 }catch(error){console.error('Error joining room:',error)}
-const wsUrl=(window.location.protocol==='https:'?'wss://':'ws://')+window.location.host+'/ws/'+roomId+'/'+currentUser.id;
+    const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = wsProto + '//' + window.location.host + '/ws/' + encodeURIComponent(roomId) + '/' + encodeURIComponent(currentUser.id);
 ws=new WebSocket(wsUrl);
 ws.onopen=function(){
 document.getElementById('setup').style.display='none';

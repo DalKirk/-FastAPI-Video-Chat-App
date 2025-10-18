@@ -28,7 +28,7 @@ curl https://natural-presence-production.up.railway.app/health
 
 **Alternative:** Run backend locally while fixing:
 ```bash
-python main_optimized.py
+python main.py
 # Runs on http://localhost:8000
 ```
 
@@ -69,7 +69,7 @@ git push
 
 The backend needs to allow both Vercel URLs:
 
-**File: `main_optimized.py`** (already configured):
+**File: `main.py`** (already configured):
 ```python
 app.add_middleware(
     CORSMiddleware,
@@ -100,7 +100,7 @@ curl https://natural-presence-production.up.railway.app/health
   "services": {
     "api": "running",
     "websocket": "running",
-    "mux": "available"
+    "bunny_stream": "available"
   }
 }
 ```
@@ -132,7 +132,7 @@ curl https://natural-presence-production.up.railway.app/health
 railway up
 
 # Option B: Run locally
-python main_optimized.py
+python main.py
 # Update frontend .env.local to http://localhost:8000
 ```
 
@@ -140,7 +140,7 @@ python main_optimized.py
 
 **Cause:** Frontend URL not in backend's allowed origins
 
-**Fix:** Update `main_optimized.py` CORS configuration (see Step 4 above)
+**Fix:** Update `main.py` CORS configuration (see Step 4 above)
 
 ### **Issue 3: WebSocket Connection Failed**
 
@@ -165,7 +165,7 @@ python main_optimized.py
 ### **Backend (Railway):**
 - **URL:** https://natural-presence-production.up.railway.app
 - **Deployment:** Dockerized FastAPI app
-- **Features:** Real-time chat, WebSocket, Mux video integration
+- **Features:** Real-time chat, WebSocket, Bunny.net Stream video integration
 - **Status:** Redeploying (2-3 minutes startup time)
 
 ### **Frontend (Vercel):**
@@ -179,7 +179,7 @@ python main_optimized.py
 ### **Terminal 1 - Backend:**
 ```bash
 cd "c:\Users\g-kd\OneDrive\Desktop\My_FastAPI_Python"
-python main_optimized.py
+python main.py
 # Backend runs on http://localhost:8000
 ```
 

@@ -10,11 +10,11 @@
 - **Status:** ✅ **ONLINE AND RUNNING**
 - **URL:** https://natural-presence-production.up.railway.app
 - **Startup Time:** Container started successfully
-- **Features:** All endpoints active including health check, API docs, chat, WebSocket, and Mux video
+- **Features:** All endpoints active including health check, API docs, chat, WebSocket, and Bunny.net Stream video
 
 #### **2. CORS Configuration - FIXED ✅**
 - **Issue:** Frontend URLs not properly configured
-- **Solution:** Updated `main_optimized.py` to include both Vercel URLs
+- **Solution:** Updated `main.py` to include both Vercel URLs
 - **Allowed Origins:**
   - ✅ http://localhost:3000
   - ✅ https://localhost:3000
@@ -70,7 +70,7 @@ Expected:
   "services": {
     "api": "running",
     "websocket": "running",
-    "mux": "available"
+    "bunny_stream": "available"
   }
 }
 ```
@@ -101,7 +101,7 @@ Backend API            ✅ ONLINE  https://natural-presence-production.up.railwa
 Health Check           ✅ ONLINE  .../health
 API Documentation      ✅ ONLINE  .../docs
 WebSocket Server       ✅ ONLINE  wss://...
-Mux Video Service      ✅ ACTIVE  Configured
+Bunny.net Stream Video Service      ✅ ACTIVE  Configured
 Frontend (Primary)     ✅ ONLINE  https://next-js-14-front-end-for-chat-plast.vercel.app
 Frontend (Alt)         ✅ ONLINE  https://video-chat-frontend-ruby.vercel.app
 GitHub Repository      ✅ ONLINE  https://github.com/DalKirk/-FastAPI-Video-Chat-App
@@ -151,7 +151,7 @@ Add JWT-based user authentication
 ✅ **Frontend:** Both URLs working and connected
 ✅ **CORS:** No cross-origin errors
 ✅ **WebSocket:** Real-time messaging functional
-✅ **Mux:** Video integration configured
+✅ **Bunny.net Stream:** Video integration configured
 ✅ **Documentation:** Comprehensive guides added
 ✅ **GitHub:** All code pushed and synced
 

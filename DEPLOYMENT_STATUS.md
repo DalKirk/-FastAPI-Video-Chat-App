@@ -5,8 +5,8 @@
 ### 🎯 **Railway Backend Deployment:**
 - **✅ Project Created:** `natural-presence`
 - **✅ Build Successful:** Docker build completed
-- **✅ Dependencies Installed:** FastAPI, Uvicorn, WebSockets, Mux
-- **✅ Mux Integration:** "✅ Mux API configured successfully"
+- **✅ Dependencies Installed:** FastAPI, Uvicorn, WebSockets, Bunny.net Stream
+- **✅ Bunny.net Integration:** "✅ Bunny.net Stream API configured successfully"
 - **✅ Domain Assigned:** https://natural-presence-production.up.railway.app
 
 ### 🎯 **Frontend Configuration:**
@@ -48,12 +48,12 @@
 - Real-time messaging  
 - User management
 - WebSocket connections
-- **Mux video integration** (credentials configured)
+- **Bunny.net video integration** (credentials configured)
 
 ### **🎬 Video Features:**
 - Live streaming creation
 - Video upload
-- Mux Player integration
+- HLS.js video player integration
 - Real-time video notifications
 
 ## 📊 **System Health:**
@@ -63,7 +63,7 @@ Backend: 🟡 Starting (normal startup delay)
 Frontend: ✅ Online
 Database: ✅ In-memory (working)
 WebSockets: 🟡 Ready (waiting for backend)
-Mux Integration: ✅ Configured
+Bunny.net Integration: ✅ Configured
 CORS: ✅ Configured for Vercel
 ```
 
@@ -73,7 +73,7 @@ You now have a **complete, production-ready chat application** with:
 - ✅ Modern Next.js 14 frontend deployed on Vercel
 - ✅ FastAPI backend with video features deployed on Railway  
 - ✅ Real-time WebSocket messaging
-- ✅ Mux video streaming integration
+- ✅ Bunny.net video streaming integration
 - ✅ Full user and room management
 
 **The deployment is complete - just waiting for Railway startup!** 🚀

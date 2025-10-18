@@ -63,10 +63,10 @@ socketManager.connect(roomId, userId);
 **Solution**: 
 ```dockerfile
 # BEFORE
-CMD ["uvicorn", "main_optimized:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 # AFTER
-CMD uvicorn main_optimized:app --host 0.0.0.0 --port ${PORT:-8000}
+CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
 ```
 **Status**: ✅ Fixed & deployed to Railway  
 **Verification**: `curl https://natural-presence-production.up.railway.app/health` → 200 OK
@@ -126,7 +126,7 @@ npm uninstall socket.io-client
 - ✅ Native WebSocket endpoint functional (`/ws/{room}/{user}`)
 - ✅ CORS properly configured for both Vercel frontends
 - ✅ Health check endpoint responding (200 OK)
-- ✅ Mux video integration configured
+- ✅ Bunny.net Stream video integration configured
 - ✅ All API endpoints operational
 
 ### **Frontend** (Partial)

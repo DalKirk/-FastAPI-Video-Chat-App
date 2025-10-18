@@ -14,7 +14,7 @@
 1. **Go to GitHub.com** and login
 2. **Click "New Repository"** (green button)
 3. **Repository Name:** `FastAPI-Video-Chat-App`
-4. **Description:** `Complete real-time video chat application with FastAPI, WebSocket, and Mux integration`
+4. **Description:** `Complete real-time video chat application with FastAPI, WebSocket, and Bunny.net Stream integration`
 5. **Make it Public** (recommended for showcasing)
 6. **Don't initialize** (since we have existing code)
 7. **Click "Create Repository"**
@@ -42,12 +42,12 @@ git push -u origin main
 ### **🎯 Suggested Repository Names:**
 - `FastAPI-Video-Chat-App`
 - `Real-Time-Chat-with-Video`
-- `FastAPI-Mux-Chat-Platform`
+- `FastAPI-Bunny-Chat-Platform`
 - `Video-Chat-FastAPI-Railway`
 
 ### **📝 Repository Description:**
 ```
-Complete real-time video chat application with FastAPI backend, Next.js frontend, WebSocket messaging, Mux video streaming, deployed on Railway and Vercel.
+Complete real-time video chat application with FastAPI backend, Next.js frontend, WebSocket messaging, Bunny.net Stream video streaming, deployed on Railway and Vercel.
 ```
 
 ### **🏷️ Suggested Topics/Tags:**
@@ -55,7 +55,7 @@ Complete real-time video chat application with FastAPI backend, Next.js frontend
 - `websocket`
 - `real-time-chat`
 - `video-streaming`
-- `mux-api`
+- `bunny-stream`
 - `railway`
 - `vercel`
 - `nextjs`
@@ -67,7 +67,7 @@ Complete real-time video chat application with FastAPI backend, Next.js frontend
 #### **🌟 Impressive Features:**
 - ✅ **Live Demo Links** - Working production deployments
 - ✅ **Professional README** - Comprehensive documentation
-- ✅ **Complete Tech Stack** - FastAPI + Next.js + Mux + Railway + Vercel
+- ✅ **Complete Tech Stack** - FastAPI + Next.js + Bunny.net Stream + Railway + Vercel
 - ✅ **Real Video Integration** - Not just a demo, actual video features
 - ✅ **Production Ready** - Health checks, CORS, proper deployment
 - ✅ **Modern Stack** - Latest FastAPI, Next.js 14, TypeScript

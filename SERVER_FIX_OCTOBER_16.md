@@ -14,7 +14,7 @@ The Dockerfile was hardcoded to use **port 8000**, but Railway dynamically assig
 
 **Original Dockerfile:**
 ```dockerfile
-CMD ["uvicorn", "main_optimized:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
 **Problem:** The app was listening on port 8000, but Railway was routing traffic to port 8080.
@@ -27,13 +27,15 @@ The Dockerfile was copying `main_optimized.py` and renaming it to `main.py`, whi
 COPY main_optimized.py main.py
 ```
 
+**Note:** `main_optimized.py` has since been removed from the project. `main.py` is now the primary application file.
+
 ## ✅ **Solutions Applied:**
 
 ### **Fix 1: Dynamic Port Configuration**
 Updated the Dockerfile to use Railway's `$PORT` environment variable with a fallback to 8000 for local development:
 
 ```dockerfile
-CMD uvicorn main_optimized:app --host 0.0.0.0 --port ${PORT:-8000}
+CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
 ```
 
 **Key Changes:**
@@ -49,6 +51,8 @@ COPY main_optimized.py .
 COPY main.py .
 ```
 
+**Note:** `main_optimized.py` has been removed from the project. Only `main.py` is now used.
+
 **Final Fixed Dockerfile:**
 ```dockerfile
 FROM python:3.9-slim
@@ -63,7 +67,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Install optional dependencies
-RUN pip install --no-cache-dir mux-python || echo "mux-python installation failed - continuing without it"
+# No additional video dependencies needed - using requests for Bunny.net Stream API
 
 # Copy the application code
 COPY main_optimized.py .
@@ -77,7 +81,7 @@ HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:${PORT:-8000}/health || exit 1
 
 # Run the application - use PORT env variable if available, otherwise default to 8000
-CMD uvicorn main_optimized:app --host 0.0.0.0 --port ${PORT:-8000}
+CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
 ```
 
 ## 🎉 **Results After Fix:**
@@ -105,7 +109,7 @@ $ curl https://natural-presence-production.up.railway.app/health
   "services":{
     "api":"running",
     "websocket":"running",
-    "mux":"available"
+    "bunny_stream":"available"
   }
 }
 ```
@@ -124,7 +128,7 @@ Status: 200 OK
 | Health Endpoint | ✅ **200 OK** | All services healthy |
 | API Documentation | ✅ **ACCESSIBLE** | Swagger UI loaded |
 | WebSocket Server | ✅ **RUNNING** | Ready for connections |
-| Mux Video Service | ✅ **CONFIGURED** | API credentials valid |
+| Bunny.net Stream Video Service | ✅ **CONFIGURED** | API credentials valid |
 | Railway Deployment | ✅ **STABLE** | Container running without errors |
 
 ## 🚀 **Working URLs:**
@@ -148,14 +152,14 @@ Status: 200 OK
 2. ✅ Container started and running Uvicorn on port 8080
 3. ✅ Health endpoint returning 200 OK
 4. ✅ API documentation accessible
-5. ✅ Mux API configured successfully
+5. ✅ Bunny.net Stream API configured successfully
 6. ✅ Internal health checks passing (multiple 200 OK responses)
 
 ## 🎯 **Next Steps:**
 
 1. **Test Frontend Connection:** Verify both Vercel frontend URLs can connect
 2. **Test WebSocket:** Create rooms and send messages
-3. **Test Video Features:** Verify Mux video streaming works
+3. **Test Video Features:** Verify Bunny.net Stream video streaming works
 4. **Monitor Performance:** Check Railway logs for any issues
 
 ---

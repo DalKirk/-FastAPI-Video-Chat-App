@@ -43,12 +43,13 @@
 
 ## Environment Variables (Optional)
 
-If you want to re-enable video features later, add these to Railway:
+If you want to enable video features, add these Bunny.net variables to Railway:
 
 ```
-MUX_TOKEN_ID=9750d6c6-011b-44cd-94df-23da0aaafd51
-MUX_TOKEN_SECRET=BEWYJ8Vsbdt6bB3v0CN/OhqCEWJVImhp5M7sSdaASL1cS1xmdmxLpCKzAY5KRN0qNcmmhmHroch
-MUX_ENVIRONMENT_ID=6i6puunpacqp84md0rm11dmd0
+BUNNY_API_KEY=your-bunny-api-key
+BUNNY_LIBRARY_ID=your-library-id
+BUNNY_PULL_ZONE=your-pull-zone-domain
+BUNNY_COLLECTION_ID=your-collection-id  # Optional
 FRONTEND_URL=https://next-js-14-front-end-for-chat-plast.vercel.app
 ```
 
@@ -56,7 +57,7 @@ FRONTEND_URL=https://next-js-14-front-end-for-chat-plast.vercel.app
 
 ✅ **Procfile** - Tells Railway how to run the app
 ✅ **requirements.txt** - Python dependencies  
-✅ **main.py** - Application code (clean, no Mux dependencies)
+✅ **main.py** - Application code (Bunny.net Stream integration)
 ✅ **Health Check** - `/health` endpoint for monitoring
 
 ## Post-Deployment
