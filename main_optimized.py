@@ -540,100 +540,134 @@ def get_room_live_streams(room_id: str):
 
 @app.post("/rooms/{room_id}/video-upload")
 async def create_video_upload(room_id: str, upload_data: VideoUploadCreate, request: Request):
-  """Create a video upload for a room.
-
-  This endpoint returns a same-origin upload URL ("/upload-proxy/{id}") so the browser can PUT the file
-  directly to the backend (avoids cross-origin PUTs and CORS issues). The backend will accept the upload,
-  store a file locally and mark processing; optionally this can be proxied to Bunny.net server-side if configured.
-  """
+  """Create a video upload for a room - returns proxy upload URL for backend upload to Bunny.net"""
   if room_id not in rooms:
     raise HTTPException(status_code=404, detail="Room not found")
 
-  # Ensure title present
+  if not bunny_enabled:
+    raise HTTPException(
+      status_code=503, 
+      detail="Bunny.net Stream not configured"
+    )
+
   title = (upload_data.title or "").strip() or "Untitled"
 
-  # Create an internal upload id and register a VideoUpload record
-  upload_id = str(uuid.uuid4())
-  # Build a same-origin upload URL using the request base
-  base = str(request.base_url).rstrip('/')
-  upload_url = f"{base}/upload-proxy/{upload_id}"
-
-  video_upload = VideoUpload(
-    id=upload_id,
-    upload_url=upload_url,
-    status="pending",
-    room_id=room_id,
-    title=title,
-    created_at=datetime.now(timezone.utc)
-  )
-  video_uploads[upload_id] = video_upload
-
-  # Add a lightweight video asset record to track status
-  video_assets[upload_id] = {
-    "id": upload_id,
-    "title": title,
-    "description": upload_data.description or "",
-    "room_id": room_id,
-    "status": "pending",
-    "created_at": datetime.now(timezone.utc).isoformat() + "Z",
-  }
-
-  # Notify room that an upload entry was created
-  upload_message = {
-    "type": "video_upload_created",
-    "upload_id": video_upload.id,
-    "upload_url": video_upload.upload_url,
-    "title": video_upload.title,
-    "message": f"📹 Video upload '{title}' ready. Upload to the provided URL.",
-    "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
-  }
   try:
-    await manager.broadcast_to_room(json.dumps(upload_message), room_id)
-  except Exception:
-    logger.exception("Failed to broadcast video_upload_created message")
+    import requests
+    
+    headers = {
+      'AccessKey': BUNNY_API_KEY,
+      'Content-Type': 'application/json'
+    }
 
-  return {
-    "id": video_upload.id,
-    "upload_url": video_upload.upload_url,
-    "status": video_upload.status,
-    "title": video_upload.title
-  }
+    create_data = {
+      "title": title
+    }
+    
+    if BUNNY_COLLECTION_ID:
+      create_data["collectionId"] = BUNNY_COLLECTION_ID
 
+    # ✅ Creates video in Bunny.net first
+    response = requests.post(
+      f'https://video.bunnycdn.com/library/{BUNNY_LIBRARY_ID}/videos',
+      headers=headers,
+      json=create_data,
+      timeout=30
+    )
+
+    if response.status_code not in (200, 201):
+      raise HTTPException(
+        status_code=response.status_code,
+        detail=f"Failed to create video in Bunny.net: {response.text}"
+      )
+
+    video_data = response.json()
+    video_guid = video_data['guid']
+    
+    bunny_upload_url = f"https://video.bunnycdn.com/library/{BUNNY_LIBRARY_ID}/videos/{video_guid}"
+    
+    base = str(request.base_url).rstrip('/')
+    upload_url = f"{base}/upload-proxy/{video_guid}"
+    
+    video_assets[video_guid] = {
+      "id": video_guid,
+      "title": title,
+      "description": upload_data.description or "",
+      "room_id": room_id,
+      "status": "pending",
+      "created_at": datetime.now(timezone.utc).isoformat() + "Z",
+      "bunny_upload_url": bunny_upload_url
+    }
+
+    video_upload = VideoUpload(
+      id=video_guid,
+      upload_url=upload_url,
+      status="pending",
+      room_id=room_id,
+      title=title,
+      created_at=datetime.now(timezone.utc)
+    )
+    video_uploads[video_guid] = video_upload
+
+    upload_message = {
+      "type": "video_upload_created",
+      "upload_id": video_guid,
+      "upload_url": upload_url,
+      "title": title,
+      "message": f"📹 Video upload '{title}' ready. Upload to the provided URL.",
+      "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
+    }
+    
+    try:
+      await manager.broadcast_to_room(json.dumps(upload_message), room_id)
+    except Exception as e:
+      logger.error(f"Failed to broadcast: {e}")
+
+    # ✅ Returns proxy upload URL
+    return {
+      "id": video_guid,
+      "upload_url": upload_url,
+      "status": "pending",
+      "title": title
+    }
+
+  except Exception as e:
+    logger.error(f"Video upload creation failed: {e}", exc_info=True)
+    raise HTTPException(status_code=500, detail=str(e))
 
 @app.put('/upload-proxy/{upload_id}')
-async def upload_proxy(upload_id: str, request: Request, background_tasks: BackgroundTasks):
-  """Accepts a PUT from the browser with the video bytes, saves a local file and marks the video as processing.
+async def upload_proxy(upload_id: str, request: Request):
+  """Accepts a PUT from the browser with the video bytes and uploads directly to Bunny.net.
 
-  This keeps the browser upload same-origin and avoids CORS issues when the external CDN isn't configured.
+  This keeps the browser upload same-origin and avoids CORS issues.
   """
   if upload_id not in video_uploads:
     raise HTTPException(status_code=404, detail='Upload id not found')
 
-  # Read bytes (be cautious about very large files in memory; for production stream to disk)
+  bunny_url = video_assets[upload_id]['bunny_upload_url']
+
   try:
     body = await request.body()
   except Exception as e:
     logger.error(f'Failed to read uploaded bytes for {upload_id}: {e}')
     raise HTTPException(status_code=400, detail='Failed to read uploaded file')
 
-  # Ensure uploads dir exists
-  uploads_dir = os.path.join(os.path.dirname(__file__), 'uploads')
-  os.makedirs(uploads_dir, exist_ok=True)
-
-  # Save file locally
-  filename = f"{upload_id}.bin"
-  file_path = os.path.join(uploads_dir, filename)
   try:
-    with open(file_path, 'wb') as fh:
-      fh.write(body)
+    import requests
+    headers = {
+      'AccessKey': BUNNY_API_KEY,
+      'Content-Type': 'application/octet-stream'
+    }
+    response = requests.put(bunny_url, data=body, headers=headers, timeout=300)
+    if response.status_code not in (200, 201):
+      raise HTTPException(status_code=500, detail=f'Failed to upload to Bunny.net: {response.text}')
   except Exception as e:
-    logger.error(f'Failed to write uploaded file for {upload_id}: {e}')
-    raise HTTPException(status_code=500, detail='Failed to store uploaded file')
+    logger.error(f'Failed to upload to Bunny.net for {upload_id}: {e}')
+    raise HTTPException(status_code=500, detail='Failed to upload file')
 
   # Update internal records
   video_uploads[upload_id].status = 'uploaded'
   video_assets[upload_id]['status'] = 'processing'
-  video_assets[upload_id]['local_path'] = file_path
 
   # Broadcast processing message
   try:
@@ -647,38 +681,6 @@ async def upload_proxy(upload_id: str, request: Request, background_tasks: Backg
     await manager.broadcast_to_room(json.dumps(processing_message), video_assets[upload_id]['room_id'])
   except Exception:
     logger.exception('Failed to broadcast processing message')
-
-  # Schedule a background task to simulate processing and mark ready (or proxy to Bunny if desired)
-  def mark_ready(upload_id_local=upload_id):
-    try:
-      # Lightweight simulation -- in production you'd start background jobs or upload to Bunny here
-      import time
-      time.sleep(2)
-      video_assets[upload_id_local]['status'] = 'ready'
-      # Compose playback URL - prefer Bunny pull zone if configured
-      if bunny_enabled and BUNNY_PULL_ZONE:
-        playback = f"https://{BUNNY_PULL_ZONE}.b-cdn.net/{upload_id_local}/playlist.m3u8"
-      else:
-        playback = f"/uploads/{upload_id_local}.mp4"
-
-      ready_message = {
-        'type': 'video_ready',
-        'video_id': upload_id_local,
-        'playback_url': playback,
-        'title': video_assets[upload_id_local]['title'],
-        'message': f"🎥 Video '{video_assets[upload_id_local]['title']}' is ready to watch",
-        'timestamp': datetime.now(timezone.utc).isoformat() + 'Z'
-      }
-      # Fire-and-forget broadcast
-      import asyncio
-      loop = asyncio.new_event_loop()
-      asyncio.set_event_loop(loop)
-      loop.run_until_complete(manager.broadcast_to_room(json.dumps(ready_message), video_assets[upload_id_local]['room_id']))
-      loop.close()
-    except Exception:
-      logger.exception('Error in mark_ready background task')
-
-  background_tasks.add_task(mark_ready)
 
   return { 'status': 'uploaded', 'upload_id': upload_id }
 
