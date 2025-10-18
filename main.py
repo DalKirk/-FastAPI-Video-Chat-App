@@ -10,46 +10,29 @@ import os
 import base64
 import requests
 
-# Optional Mux imports - CORRECTED for mux-python 5.1.0
+# Optional Video Service imports - Bunny.net Stream
 try:
-    from mux_python import ApiClient as MuxApiClient, Configuration as MuxConfiguration
-    from mux_python.api import direct_uploads_api, live_streams_api, assets_api
-    from mux_python import CreateUploadRequest, CreateLiveStreamRequest
-    MUX_AVAILABLE = True
+    import requests
+    BUNNY_AVAILABLE = True
 except ImportError:
-    MUX_AVAILABLE = False
-    print("⚠️ Mux-python not available - video features disabled")
+    BUNNY_AVAILABLE = False
+    print("⚠️ Requests not available - video features disabled")
 
 app = FastAPI(title="Chat API with Video", description="Real-time messaging API with WebSocket support and video streaming")
 
-# Mux Configuration - Environment Variables
-MUX_TOKEN_ID = os.getenv("MUX_TOKEN_ID", "9750d6c6-011b-44cd-94df-23da0aaafd51")
-MUX_TOKEN_SECRET = os.getenv("MUX_TOKEN_SECRET", "BEWYJ8Vsbdt6bB3v0CN/OhqCEWJVImhp5M7sSdaASL1cS1xmdmxLpCKzAY5KRN0qNcmmhmHroch")
-MUX_ENVIRONMENT_ID = os.getenv("MUX_ENVIRONMENT_ID", "6i6puunpacqp84md0rm11dmd0")
+# Bunny.net Stream Configuration
+BUNNY_API_KEY = os.getenv("BUNNY_API_KEY", "7b796ba2-b5fd-4d87-ada3-4cb491ac38ded41dc65f-dfa8-42b2-b823-985118287017")
+BUNNY_LIBRARY_ID = os.getenv("BUNNY_LIBRARY_ID", "your_library_id")  # You'll need to create a library
+BUNNY_PULL_ZONE = os.getenv("BUNNY_PULL_ZONE", "your_pull_zone")    # Your CDN pull zone
+BUNNY_COLLECTION_ID = os.getenv("BUNNY_COLLECTION_ID", "")          # Optional collection
 
-# Initialize Mux (Optional - graceful degradation if not available)
-mux_enabled = False
-assets_api = live_streams_api = direct_uploads_api = None
+# Initialize Bunny.net (Optional - graceful degradation if not available)
+bunny_enabled = BUNNY_AVAILABLE and BUNNY_API_KEY and BUNNY_LIBRARY_ID
 
-if MUX_AVAILABLE and MUX_TOKEN_ID and MUX_TOKEN_SECRET:
-    try:
-        # CORRECTED: Use proper mux-python 3.x configuration
-        configuration = MuxConfiguration()
-        configuration.username = MUX_TOKEN_ID
-        configuration.password = MUX_TOKEN_SECRET
-        
-        # CORRECTED: Use proper API classes
-        assets_api = assets_api.AssetsApi(MuxApiClient(configuration))
-        live_streams_api = live_streams_api.LiveStreamsApi(MuxApiClient(configuration))
-        direct_uploads_api = direct_uploads_api.DirectUploadsApi(MuxApiClient(configuration))
-        
-        mux_enabled = True
-        print("✅ Mux API configured successfully")
-    except Exception as e:
-        mux_enabled = False
-        print(f"⚠️ Mux configuration failed: {e}")
+if bunny_enabled:
+    print("✅ Bunny.net Stream configured successfully")
 else:
-    print("⚠️ Mux not available - video features disabled")
+    print("⚠️ Bunny.net not configured - video features disabled")
 
 # Add CORS middleware for mobile browser compatibility
 app.add_middleware(
@@ -176,43 +159,36 @@ class ConnectionManager:
 @app.get("/health")
 async def health_check():
     """Health check endpoint for deployment verification"""
-    mux_status = "enabled" if mux_enabled else "disabled"
+    bunny_status = "enabled" if bunny_enabled else "disabled"
     
     return {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat() + "Z",
-        "version": "mux-5.1.0-integration",
+        "version": "bunny-net-integration",
         "services": {
             "api": "running",
             "websocket": "running",
-            "mux": mux_status
+            "bunny_stream": bunny_status
         },
-        "note": "Mux integration updated to use correct mux-python 5.1.0 API"
+        "note": "Video endpoints use Bunny.net Stream API"
     }
 
-# Test Mux endpoint
-@app.get("/test-mux")
-async def test_mux():
-    """Test Mux API connectivity"""
-    if not mux_enabled:
-        return {"status": "Mux not enabled"}
+# Test Bunny.net endpoint
+@app.get("/test-bunny")
+async def test_bunny():
+    """Test Bunny.net Stream API connectivity"""
+    if not bunny_enabled:
+        return {"status": "Bunny.net not enabled"}
     
     try:
-        # Test basic authentication with Mux
-        import base64
-        
-        auth_string = f"{MUX_TOKEN_ID}:{MUX_TOKEN_SECRET}"
-        auth_bytes = auth_string.encode('utf-8')
-        auth_b64 = base64.b64encode(auth_bytes).decode('utf-8')
-        
         headers = {
-            'Authorization': f'Basic {auth_b64}',
+            'AccessKey': BUNNY_API_KEY,
             'Content-Type': 'application/json'
         }
         
-        # Test with a simple GET request to list uploads
+        # Test with a simple GET request to list videos
         response = requests.get(
-            'https://api.mux.com/video/v1/uploads',
+            f'https://video.bunnycdn.com/library/{BUNNY_LIBRARY_ID}/videos',
             headers=headers
         )
         
@@ -311,15 +287,15 @@ def join_room(room_id: str, join_data: JoinRoomRequest):
     
     return {"message": f"User {users[join_data.user_id].username} joined room {rooms[room_id].name}"}
 
-# Mux Video Endpoints
+# Bunny.net Video Endpoints
 @app.post("/rooms/{room_id}/live-stream")
 async def create_live_stream(room_id: str, stream_data: LiveStreamCreate):
-    """Create a live stream for a room using Mux API"""
+    """Create a live stream for a room using Bunny.net Stream API"""
     if room_id not in rooms:
         raise HTTPException(status_code=404, detail="Room not found")
     
-    if not mux_enabled:
-        # Fallback to mock if Mux not available
+    if not bunny_enabled:
+        # Fallback to mock if Bunny.net not available
         mock_stream_id = str(uuid.uuid4())
         mock_stream_key = f"mock_stream_key_{mock_stream_id[:8]}"
         mock_playback_id = f"mock_playback_{mock_stream_id[:8]}"
@@ -342,57 +318,68 @@ async def create_live_stream(room_id: str, stream_data: LiveStreamCreate):
             "status": live_stream.status,
             "title": live_stream.title,
             "rtmp_url": "rtmp://mock-stream.example.com/live/",
-            "note": "Mock implementation - Mux not configured"
+            "note": "Mock implementation - Bunny.net not configured"
         }
     
     try:
-        # CORRECTED: Use proper mux-python 5.1.0 API
-        create_request = CreateLiveStreamRequest(
-            playback_policy=["public"],
-            new_asset_settings={
-                "playback_policies": ["public"]
-            },
-            test=False  # Set to False for production
+        headers = {
+            'AccessKey': BUNNY_API_KEY,
+            'Content-Type': 'application/json'
+        }
+        
+        # Create live stream with Bunny.net
+        create_data = {
+            "title": stream_data.title,
+            "collectionId": BUNNY_COLLECTION_ID if BUNNY_COLLECTION_ID else None
+        }
+        
+        response = requests.post(
+            f'https://video.bunnycdn.com/library/{BUNNY_LIBRARY_ID}/streams',
+            headers=headers,
+            json=create_data
         )
         
-        # CORRECTED: Use correct API method
-        stream_response = live_streams_api.LiveStreamsApi(MuxApiClient(configuration)).create_live_stream(create_request)
-        
-        # Store live stream info
-        live_stream = LiveStream(
-            id=stream_response.data.id,
-            stream_key=stream_response.data.stream_key,
-            playback_id=stream_response.data.playback_id,
-            status="ready",
-            room_id=room_id,
-            title=stream_data.title,
-            created_at=datetime.utcnow()
-        )
-        
-        live_streams[stream_response.data.id] = live_stream
-        
-        # Notify room about new live stream
-        stream_message = {
-            "type": "live_stream_created",
-            "stream_id": live_stream.id,
-            "playback_id": live_stream.playback_id,
-            "title": live_stream.title,
-            "message": f"🔴 Live stream '{stream_data.title}' started",
-            "timestamp": datetime.utcnow().isoformat() + "Z"
-        }
-        await manager.broadcast_to_room(json.dumps(stream_message), room_id)
-        
-        return {
-            "id": live_stream.id,
-            "stream_key": live_stream.stream_key,
-            "playback_id": live_stream.playback_id,
-            "status": live_stream.status,
-            "title": live_stream.title,
-            "rtmp_url": "rtmp://global-live.mux.com:5222/live/"
-        }
+        if response.status_code == 201:
+            stream_data = response.json()
+            
+            # Store live stream info
+            live_stream = LiveStream(
+                id=str(stream_data['id']),
+                stream_key=stream_data['streamKey'],
+                playback_id=str(stream_data['id']),  # Bunny.net uses ID as playback ID
+                status="ready",
+                room_id=room_id,
+                title=stream_data.title,
+                created_at=datetime.utcnow()
+            )
+            
+            live_streams[str(stream_data['id'])] = live_stream
+            
+            # Notify room about new live stream
+            stream_message = {
+                "type": "live_stream_created",
+                "stream_id": live_stream.id,
+                "playback_id": live_stream.playback_id,
+                "title": live_stream.title,
+                "message": f"🔴 Live stream '{stream_data.title}' started",
+                "timestamp": datetime.utcnow().isoformat() + "Z"
+            }
+            await manager.broadcast_to_room(json.dumps(stream_message), room_id)
+            
+            return {
+                "id": live_stream.id,
+                "stream_key": live_stream.stream_key,
+                "playback_id": live_stream.playback_id,
+                "status": live_stream.status,
+                "title": live_stream.title,
+                "rtmp_url": f"rtmp://rtmp.bunnycdn.com/live/{live_stream.stream_key}",
+                "pull_url": f"https://{BUNNY_PULL_ZONE}.b-cdn.net/{live_stream.id}/playlist.m3u8"
+            }
+        else:
+            raise Exception(f"Bunny.net API error: {response.status_code} - {response.text}")
         
     except Exception as e:
-        print(f"Mux API error: {e}")
+        print(f"Bunny.net API error: {e}")
         # Fallback to mock on error
         mock_stream_id = str(uuid.uuid4())
         mock_stream_key = f"mock_stream_key_{mock_stream_id[:8]}"
@@ -416,7 +403,7 @@ async def create_live_stream(room_id: str, stream_data: LiveStreamCreate):
             "status": live_stream.status,
             "title": live_stream.title,
             "rtmp_url": "rtmp://mock-stream.example.com/live/",
-            "note": f"Fallback to mock - Mux error: {str(e)}"
+            "note": f"Fallback to mock - Bunny.net error: {str(e)}"
         }
 
 @app.get("/rooms/{room_id}/live-streams")
@@ -430,12 +417,12 @@ def get_room_live_streams(room_id: str):
 
 @app.post("/rooms/{room_id}/video-upload")
 async def create_video_upload(room_id: str, upload_data: VideoUploadCreate):
-    """Create a video upload URL for a room using Mux API"""
+    """Create a video upload for a room using Bunny.net Stream API"""
     if room_id not in rooms:
         raise HTTPException(status_code=404, detail="Room not found")
     
-    if not mux_enabled:
-        # Fallback to mock if Mux not available
+    if not bunny_enabled:
+        # Fallback to mock if Bunny.net not available
         mock_upload_id = str(uuid.uuid4())
         mock_upload_url = f"https://mock-upload.example.com/{mock_upload_id}"
         
@@ -454,55 +441,76 @@ async def create_video_upload(room_id: str, upload_data: VideoUploadCreate):
             "upload_url": video_upload.upload_url,
             "status": video_upload.status,
             "title": video_upload.title,
-            "note": "Mock implementation - Mux not configured"
+            "note": "Mock implementation - Bunny.net not configured"
         }
     
     try:
-        # CORRECTED: Use proper mux-python 5.1.0 API
-        create_request = CreateUploadRequest(
-            new_asset_settings={
-                "playback_policies": ["public"],
-                "mp4_support": "standard"
-            },
-            cors_origin="*",
-            test=False  # Set to False for production
+        headers = {
+            'AccessKey': BUNNY_API_KEY,
+            'Content-Type': 'application/json'
+        }
+        
+        # Create video upload with Bunny.net
+        create_data = {
+            "title": upload_data.title,
+            "description": upload_data.description or "",
+            "collectionId": BUNNY_COLLECTION_ID if BUNNY_COLLECTION_ID else None
+        }
+        
+        response = requests.post(
+            f'https://video.bunnycdn.com/library/{BUNNY_LIBRARY_ID}/videos',
+            headers=headers,
+            json=create_data
         )
         
-        # CORRECTED: Use correct API method
-        upload_response = direct_uploads_api.DirectUploadsApi(MuxApiClient(configuration)).create_direct_upload(create_request)
-        
-        # Store upload info
-        video_upload = VideoUpload(
-            id=upload_response.data.id,
-            upload_url=upload_response.data.url,
-            status="ready",
-            room_id=room_id,
-            title=upload_data.title,
-            created_at=datetime.utcnow()
-        )
-        
-        video_uploads[upload_response.data.id] = video_upload
-        
-        # Notify room about new video upload
-        upload_message = {
-            "type": "video_upload_created",
-            "upload_id": video_upload.id,
-            "upload_url": video_upload.upload_url,
-            "title": video_upload.title,
-            "message": f"📹 Video upload '{upload_data.title}' ready",
-            "timestamp": datetime.utcnow().isoformat() + "Z"
-        }
-        await manager.broadcast_to_room(json.dumps(upload_message), room_id)
-        
-        return {
-            "id": video_upload.id,
-            "upload_url": video_upload.upload_url,
-            "status": video_upload.status,
-            "title": video_upload.title
-        }
+        if response.status_code == 201:
+            video_data = response.json()
+            
+            # Store upload info
+            video_upload = VideoUpload(
+                id=str(video_data['guid']),
+                upload_url=f"https://video.bunnycdn.com/library/{BUNNY_LIBRARY_ID}/videos/{video_data['guid']}",
+                status="ready",
+                room_id=room_id,
+                title=upload_data.title,
+                created_at=datetime.utcnow()
+            )
+            
+            video_uploads[str(video_data['guid'])] = video_upload
+            
+            # Store video asset info
+            video_assets[str(video_data['guid'])] = {
+                "id": str(video_data['guid']),
+                "title": upload_data.title,
+                "description": upload_data.description or "",
+                "room_id": room_id,
+                "status": "processing",
+                "created_at": datetime.utcnow().isoformat() + "Z",
+                "bunny_id": video_data['guid']
+            }
+            
+            # Notify room about new video upload
+            upload_message = {
+                "type": "video_upload_created",
+                "upload_id": video_upload.id,
+                "upload_url": video_upload.upload_url,
+                "title": video_upload.title,
+                "message": f"📹 Video upload '{upload_data.title}' ready",
+                "timestamp": datetime.utcnow().isoformat() + "Z"
+            }
+            await manager.broadcast_to_room(json.dumps(upload_message), room_id)
+            
+            return {
+                "id": video_upload.id,
+                "upload_url": video_upload.upload_url,
+                "status": video_upload.status,
+                "title": video_upload.title
+            }
+        else:
+            raise Exception(f"Bunny.net API error: {response.status_code} - {response.text}")
         
     except Exception as e:
-        print(f"Mux API error: {e}")
+        print(f"Bunny.net API error: {e}")
         # Fallback to mock on error
         mock_upload_id = str(uuid.uuid4())
         mock_upload_url = f"https://mock-upload.example.com/{mock_upload_id}"
@@ -522,7 +530,7 @@ async def create_video_upload(room_id: str, upload_data: VideoUploadCreate):
             "upload_url": video_upload.upload_url,
             "status": video_upload.status,
             "title": video_upload.title,
-            "note": f"Fallback to mock - Mux error: {str(e)}"
+            "note": f"Fallback to mock - Bunny.net error: {str(e)}"
         }
 
 @app.get("/rooms/{room_id}/videos")
@@ -534,37 +542,65 @@ def get_room_videos(room_id: str):
     room_videos = [video for video in video_assets.values() if video["room_id"] == room_id]
     return room_videos
 
-@app.post("/mux-webhook")
-async def mux_webhook(request: dict):
-    """Handle Mux webhooks for video processing updates"""
+@app.post("/bunny-webhook")
+async def bunny_webhook(request: dict):
+    """Handle Bunny.net webhooks for video processing updates"""
     try:
-        event_type = request.get("type")
-        data = request.get("data", {})
+        event_type = request.get("EventType")
+        video_id = request.get("VideoGuid")
         
-        if event_type == "video.asset.ready":
-            # Asset is ready for playback
-            asset_id = data.get("id")
-            playback_ids = data.get("playback_ids", [])
-            
-            if playback_ids:
-                playback_id = playback_ids[0].get("id")
+        if event_type == "VideoFileCreated":
+            # Video upload completed and processing started
+            if video_id and video_id in video_assets:
+                video = video_assets[video_id]
+                room_id = video["room_id"]
                 
-                # Find the room for this asset
-                for video in video_assets.values():
-                    if video.get("asset_id") == asset_id:
-                        room_id = video["room_id"]
-                        
-                        # Notify room about video ready
-                        video_ready_message = {
-                            "type": "video_ready",
-                            "asset_id": asset_id,
-                            "playback_id": playback_id,
-                            "title": video["title"],
-                            "message": f"🎥 Video '{video['title']}' is ready to watch",
-                            "timestamp": datetime.utcnow().isoformat() + "Z"
-                        }
-                        await manager.broadcast_to_room(json.dumps(video_ready_message), room_id)
-                        break
+                # Update video status
+                video["status"] = "processing"
+                
+                # Notify room about video processing
+                processing_message = {
+                    "type": "video_processing",
+                    "video_id": video_id,
+                    "title": video["title"],
+                    "message": f"🎬 Video '{video['title']}' uploaded and processing started",
+                    "timestamp": datetime.utcnow().isoformat() + "Z"
+                }
+                await manager.broadcast_to_room(json.dumps(processing_message), room_id)
+                
+        elif event_type == "VideoFileEncoded":
+            # Video encoding completed
+            if video_id and video_id in video_assets:
+                video = video_assets[video_id]
+                room_id = video["room_id"]
+                
+                # Update video status
+                video["status"] = "ready"
+                
+                # Get video details from Bunny.net
+                headers = {
+                    'AccessKey': BUNNY_API_KEY,
+                    'Content-Type': 'application/json'
+                }
+                
+                response = requests.get(
+                    f'https://video.bunnycdn.com/library/{BUNNY_LIBRARY_ID}/videos/{video_id}',
+                    headers=headers
+                )
+                
+                if response.status_code == 200:
+                    video_data = response.json()
+                    
+                    # Notify room about video ready
+                    video_ready_message = {
+                        "type": "video_ready",
+                        "video_id": video_id,
+                        "playback_url": f"https://{BUNNY_PULL_ZONE}.b-cdn.net/{video_id}/playlist.m3u8",
+                        "title": video["title"],
+                        "message": f"🎥 Video '{video['title']}' is ready to watch",
+                        "timestamp": datetime.utcnow().isoformat() + "Z"
+                    }
+                    await manager.broadcast_to_room(json.dumps(video_ready_message), room_id)
         
         return {"status": "received"}
         
@@ -642,7 +678,7 @@ def get_chat_page():
     """Serve a comprehensive chat interface with Mux video capabilities"""
     html_content = """<!DOCTYPE html>
 <html><head><title>FastAPI Chat with Video</title><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
-<script src="https://cdn.jsdelivr.net/npm/@mux/mux-player@1.0.0"></script>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;background:#f5f5f5;height:100vh;display:flex;flex-direction:column}
 .container{max-width:100%;margin:0;padding:10px;height:100%;display:flex;flex-direction:column}
