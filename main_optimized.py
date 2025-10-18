@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 # Load the .env file
 load_dotenv()
@@ -52,7 +52,8 @@ class User(BaseModel):
   username: str
   joined_at: datetime
 
-  @validator('username')
+  @field_validator('username')
+  @classmethod
   def username_must_be_valid(cls, v):
     if not v or len(v.strip()) < 2:
       raise ValueError('Username must be at least 2 characters long')
@@ -72,8 +73,7 @@ class Room(BaseModel):
   created_at: datetime
   users: List[str] = Field(default_factory=list)
 
-  class Config:
-    arbitrary_types_allowed = True
+  model_config = ConfigDict(arbitrary_types_allowed=True)
 
 class MessageCreate(BaseModel):
   content: str
@@ -102,8 +102,7 @@ class VideoUpload(BaseModel):
   title: str
   created_at: datetime
 
-  class Config:
-    arbitrary_types_allowed = True
+  model_config = ConfigDict(arbitrary_types_allowed=True)
 
 class LiveStream(BaseModel):
   id: str
@@ -114,8 +113,7 @@ class LiveStream(BaseModel):
   title: str
   created_at: datetime
 
-  class Config:
-    arbitrary_types_allowed = True
+  model_config = ConfigDict(arbitrary_types_allowed=True)
 
 # In-memory storage (consider Redis/PostgreSQL for production scaling)
 rooms: Dict[str, Room] = {}
@@ -577,7 +575,7 @@ async def create_video_upload(room_id: str, upload_data: VideoUploadCreate, requ
     "description": upload_data.description or "",
     "room_id": room_id,
     "status": "pending",
-    "created_at": datetime.utcnow().isoformat() + "Z",
+    "created_at": datetime.now(timezone.utc).isoformat() + "Z",
   }
 
   # Notify room that an upload entry was created
@@ -587,7 +585,7 @@ async def create_video_upload(room_id: str, upload_data: VideoUploadCreate, requ
     "upload_url": video_upload.upload_url,
     "title": video_upload.title,
     "message": f"📹 Video upload '{title}' ready. Upload to the provided URL.",
-    "timestamp": datetime.utcnow().isoformat() + "Z"
+    "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
   }
   try:
     await manager.broadcast_to_room(json.dumps(upload_message), room_id)
@@ -644,7 +642,7 @@ async def upload_proxy(upload_id: str, request: Request, background_tasks: Backg
       'video_id': upload_id,
       'title': video_assets[upload_id]['title'],
       'message': f"🎬 Video '{video_assets[upload_id]['title']}' uploaded and processing started",
-      'timestamp': datetime.utcnow().isoformat() + 'Z'
+      'timestamp': datetime.now(timezone.utc).isoformat() + 'Z'
     }
     await manager.broadcast_to_room(json.dumps(processing_message), video_assets[upload_id]['room_id'])
   except Exception:
@@ -669,7 +667,7 @@ async def upload_proxy(upload_id: str, request: Request, background_tasks: Backg
         'playback_url': playback,
         'title': video_assets[upload_id_local]['title'],
         'message': f"🎥 Video '{video_assets[upload_id_local]['title']}' is ready to watch",
-        'timestamp': datetime.utcnow().isoformat() + 'Z'
+        'timestamp': datetime.now(timezone.utc).isoformat() + 'Z'
       }
       # Fire-and-forget broadcast
       import asyncio
@@ -720,7 +718,7 @@ async def bunny_webhook(request: Request):
           "video_id": video_id,
           "title": video["title"],
           "message": f"🎬 Video '{video['title']}' uploaded and processing started",
-          "timestamp": datetime.utcnow().isoformat() + "Z"
+          "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
         }
         await manager.broadcast_to_room(json.dumps(processing_message), room_id)
 
@@ -740,7 +738,7 @@ async def bunny_webhook(request: Request):
           "playback_url": f"https://{BUNNY_PULL_ZONE}.b-cdn.net/{video_id}/playlist.m3u8",
           "title": video["title"],
           "message": f"🎥 Video '{video['title']}' is ready to watch",
-          "timestamp": datetime.utcnow().isoformat() + "Z"
+          "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
         }
         await manager.broadcast_to_room(json.dumps(video_ready_message), room_id)
 
@@ -772,7 +770,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
   join_message = {
     "type": "user_joined",
     "message": f"{user.username} joined the chat",
-    "timestamp": datetime.utcnow().isoformat() + "Z"
+    "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
   }
   await manager.broadcast_to_room(json.dumps(join_message), room_id)
 
@@ -797,7 +795,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
         username=user.username,
         room_id=room_id,
         content=message_data["content"].strip(),
-        timestamp=datetime.utcnow().isoformat() + "Z"
+        timestamp=datetime.now(timezone.utc).isoformat() + "Z"
       )
 
       # Store message
@@ -819,7 +817,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
     leave_message = {
       "type": "user_left",
       "message": f"{user.username} left the chat",
-      "timestamp": datetime.utcnow().isoformat() + "Z"
+      "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
     }
     await manager.broadcast_to_room(json.dumps(leave_message), room_id)
     logger.info(f"WebSocket disconnected for user {user.username}")
