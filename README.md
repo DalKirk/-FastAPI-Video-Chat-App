@@ -109,7 +109,6 @@ railway up
 ```
 ├── main.py              # Production FastAPI app with Bunny.net Stream
 ├── main_backup.py       # Backup version
-├── main_optimized.py    # Alternative optimized version
 ├── requirements.txt     # Python dependencies (Python 3.14 compatible)
 ├── Procfile            # Railway deployment config
 ├── Dockerfile          # Container configuration
@@ -286,3 +285,31 @@ The migration maintains full backward compatibility with existing frontend code.
 ---
 
 **Built with ❤️ using FastAPI, Bunny.net Stream, Railway, and Vercel**
+
+## 🔌 Vercel / ngrok — quick wiring for frontend testing
+
+If your frontend is deployed on Vercel and you want it to talk to a locally running backend for preview testing, do one of the following:
+
+1) Quick temporary tunnel with ngrok (recommended for fast preview)
+
+```powershell
+# Start your backend locally first (in the repo root)
+& '.\.venv\Scripts\uvicorn.exe' main_optimized:app --host 127.0.0.1 --port 8000
+
+# In another terminal, start ngrok (install from https://ngrok.com if missing)
+ngrok http 8000
+
+# ngrok will print a public HTTPS URL like https://a1b2c3d4.ngrok.io
+# Copy that URL and set it in your Vercel project (Environment Variables)
+# Variable name: NEXT_PUBLIC_API_URL
+# Value: https://a1b2c3d4.ngrok.io
+```
+
+2) Deploy backend to Railway and set NEXT_PUBLIC_API_URL to the Railway URL in Vercel (recommended for persistent testing)
+
+ - On Railway, set up environment variables: `BUNNY_API_KEY`, `BUNNY_LIBRARY_ID`, `BUNNY_PULL_ZONE`, and `ENVIRONMENT=production`.
+ - In Vercel, set `NEXT_PUBLIC_API_URL` to `https://<your-railway-app>.up.railway.app` and redeploy.
+
+Notes:
+ - Do not commit secrets (BUNNY_* or other API keys) to the repository. Use Vercel and Railway environment variable pages to store secrets.
+ - If using ngrok, remember the tunnel is temporary and will change on restart unless you have a reserved domain (paid ngrok plan).

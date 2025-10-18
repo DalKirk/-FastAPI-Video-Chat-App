@@ -166,11 +166,34 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
-# App and CORS
+# App and CORS (make origins configurable via ALLOWED_ORIGINS env var)
 app = FastAPI(title="FastAPI Video Chat", description="Real-time messaging with WebSocket support")
+
+# Recommended default origins (add your Vercel frontend(s) here)
+default_frontend_origins = [
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+  "http://192.168.1.119:3000",
+  "https://video-chat-frontend-ruby.vercel.app",
+  "https://next-js-14-front-end-for-chat-plast.vercel.app",
+]
+
+# Allow overriding via comma-separated environment variable ALLOWED_ORIGINS
+allowed_origins_env = os.getenv("ALLOWED_ORIGINS")
+if allowed_origins_env:
+  allowed_origins = [o.strip() for o in allowed_origins_env.split(",") if o.strip()]
+  logger.info(f"Using ALLOWED_ORIGINS from env: {allowed_origins}")
+else:
+  allowed_origins = default_frontend_origins.copy()
+  logger.info(f"Using default allowed origins: {allowed_origins}")
+
+# For local development convenience, you can include '*' via env or when not in production
+if os.getenv("ENVIRONMENT") != "production" and "*" not in allowed_origins:
+  allowed_origins.append("*")
+
 app.add_middleware(
   CORSMiddleware,
-  allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://192.168.1.119:3000"],
+  allow_origins=allowed_origins,
   allow_credentials=True,
   allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allow_headers=["*"],
