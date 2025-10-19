@@ -209,7 +209,7 @@ allowed_origins = [
 # Allow all Vercel preview deployments in development
 if os.getenv("ENVIRONMENT") != "production":
   logger.info("⚠️  Development mode: Allowing all origins for CORS")
-  allowed_origins.append("*")
+  # allowed_origins.append("*")  # DISABLED: Conflicts with credentials
 else:
   logger.info("✅ Production mode: Restricted CORS origins")
 
