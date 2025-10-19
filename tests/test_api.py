@@ -1,8 +1,8 @@
-import pytest
+import main
 from fastapi.testclient import TestClient
-import main_optimized
+import pytest
 
-client = TestClient(main_optimized.app)
+client = TestClient(main.app)
 
 def test_health():
     r = client.get('/health')
