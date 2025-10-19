@@ -1,6 +1,7 @@
 """
 FastAPI Video Chat Application - Optimized for Railway Deployment
 Real-time messaging with WebSocket support and Bunny.net Stream integration
+# Redeploy trigger
 """
 
 import os
