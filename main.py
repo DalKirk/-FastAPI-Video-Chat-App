@@ -197,25 +197,16 @@ app = FastAPI(
 )
 
 # CORS middleware - Production ready (restrict origins in production)
-allowed_origins = [
-  "http://localhost:3000",
-  "https://localhost:3000",
-  "https://next-js-14-front-end-for-chat-plast.vercel.app",
-  "https://video-chat-frontend-ruby.vercel.app",
-]
-
-# Allow all origins for development, but log warnings
-if os.getenv("ENVIRONMENT") == "production":
-  logger.warning("⚠️  Running in production with permissive CORS - consider restricting origins")
-else:
-  allowed_origins.append("*")
-
 app.add_middleware(
-  CORSMiddleware,
-  allow_origins=allowed_origins,
-  allow_credentials=True,
-  allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allow_headers=["*"],
+    CORSMiddleware,
+    allow_origins=[
+        "https://video-chat-frontend-ruby.vercel.app",
+        "https://next-js-14-front-end-for-chat-plast.vercel.app",
+        "http://localhost:3000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Global exception handler
