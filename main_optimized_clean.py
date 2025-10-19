@@ -17,7 +17,6 @@ from dotenv import load_dotenv
 # FastAPI and related imports
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, validator
 
 # Load the .env file
@@ -198,26 +197,16 @@ app = FastAPI(
 )
 
 # CORS middleware - Production ready (restrict origins in production)
-allowed_origins = [
-    "http://localhost:3000",
-    "https://localhost:3000",
-    "https://next-js-14-front-end-for-chat-plast.vercel.app",
+from backend.dynamic_cors_middleware import DynamicCORSMiddleware
+
+WHITELIST = {
     "https://video-chat-frontend-ruby.vercel.app",
-]
+    "https://next-js-14-front-end-for-chat-plast.vercel.app",
+    "https://next-js-14-front-end-for-chat-plaster-repository-j5rgq70jj.vercel.app",
+    "http://localhost:3000",
+}
 
-# Allow all origins for development, but log warnings
-if os.getenv("ENVIRONMENT") == "production":
-    logger.warning("⚠️  Running in production with permissive CORS - consider restricting origins")
-else:
-    allowed_origins.append("*")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
-)
+app.add_middleware(DynamicCORSMiddleware, whitelist=WHITELIST)
 
 # Global exception handler
 @app.exception_handler(Exception)
@@ -306,7 +295,7 @@ def debug_info():
     info = {
         "bunny_enabled": bunny_enabled,
         "environment": os.getenv("ENVIRONMENT", "development"),
-        "allowed_origins_sample": allowed_origins[:10] if isinstance(globals().get('allowed_origins'), list) else None,
+        "allowed_origins_sample": WHITELIST if isinstance(globals().get('WHITELIST'), set) else None,
         "active_rooms": len(rooms),
         "active_users": len(users),
     }
