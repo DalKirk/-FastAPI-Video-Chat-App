@@ -335,10 +335,18 @@ def debug_info():
 @app.post("/users", response_model=User)
 def create_user(user_data: UserCreate):
   """Create a new user"""
+  # Validate username before creating User model
+  username = user_data.username.strip() if user_data.username else ""
+  if not username or len(username) < 2:
+    raise HTTPException(
+      status_code=422,
+      detail="Username must be at least 2 characters long"
+    )
+  
   user_id = str(uuid.uuid4())
   user = User(
     id=user_id,
-    username=user_data.username,
+    username=username,
     joined_at=datetime.now(timezone.utc)
   )
   users[user_id] = user
