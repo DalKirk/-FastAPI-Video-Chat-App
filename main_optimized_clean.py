@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 # FastAPI and related imports
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 # Load the .env file
 load_dotenv()
@@ -51,7 +51,8 @@ class User(BaseModel):
     username: str
     joined_at: datetime
 
-    @validator('username')
+    @field_validator('username')
+    @classmethod
     def username_must_be_valid(cls, v):
         if not v or len(v.strip()) < 2:
             raise ValueError('Username must be at least 2 characters long')
@@ -71,8 +72,7 @@ class Room(BaseModel):
     created_at: datetime
     users: List[str] = Field(default_factory=list)
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 class MessageCreate(BaseModel):
     content: str
@@ -101,8 +101,7 @@ class VideoUpload(BaseModel):
     title: str
     created_at: datetime
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 class LiveStream(BaseModel):
     id: str
@@ -113,8 +112,7 @@ class LiveStream(BaseModel):
     title: str
     created_at: datetime
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 # In-memory storage (consider Redis/PostgreSQL for production scaling)
 rooms: Dict[str, Room] = {}

@@ -196,17 +196,29 @@ app = FastAPI(
   lifespan=lifespan
 )
 
-# CORS middleware - Production ready (restrict origins in production)
+# CORS middleware - Enhanced with wildcard support for Vercel preview deployments
+allowed_origins = [
+  "http://localhost:3000",
+  "http://localhost:3001",
+  "https://localhost:3000",
+  "https://next-js-14-front-end-for-chat-plast.vercel.app",
+  "https://video-chat-frontend-ruby.vercel.app",
+  "https://next-js-14-front-end-for-chat-plaster-repository-7vb273qqo.vercel.app",
+]
+
+# Allow all Vercel preview deployments in development
+if os.getenv("ENVIRONMENT") != "production":
+  logger.info("⚠️  Development mode: Allowing all origins for CORS")
+  allowed_origins.append("*")
+else:
+  logger.info("✅ Production mode: Restricted CORS origins")
+
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "https://video-chat-frontend-ruby.vercel.app",
-        "https://next-js-14-front-end-for-chat-plast.vercel.app",
-        "http://localhost:3000",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+  CORSMiddleware,
+  allow_origins=allowed_origins,
+  allow_credentials=True,
+  allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allow_headers=["*"],
 )
 
 # Global exception handler

@@ -5,10 +5,10 @@ A comprehensive real-time video chat application with live streaming capabilitie
 ## 🌟 **Live Deployment**
 
 ### **🎯 Production URLs:**
-- **🏠 Backend API:** https://natural-presence-production.up.railway.app
-- **💚 Health Check:** https://natural-presence-production.up.railway.app/health
-- **📚 API Documentation:** https://natural-presence-production.up.railway.app/docs
-- **💬 Chat Interface:** https://natural-presence-production.up.railway.app/chat
+- **🏠 Backend API:** https://web-production-3ba7e.up.railway.app
+- **💚 Health Check:** https://web-production-3ba7e.up.railway.app/health
+- **📚 API Documentation:** https://web-production-3ba7e.up.railway.app/docs
+- **💬 Chat Interface:** https://web-production-3ba7e.up.railway.app/chat
 - **🖥️ Frontend (Primary):** https://next-js-14-front-end-for-chat-plast.vercel.app
 - **🖥️ Frontend (Alternative):** https://video-chat-frontend-ruby.vercel.app
 
@@ -218,13 +218,13 @@ python test_websocket.py
 
 ### **Health Check:**
 ```bash
-curl https://natural-presence-production.up.railway.app/health
+curl https://web-production-3ba7e.up.railway.app/health
 # Should return: {"bunny_stream": "enabled"}
 ```
 
 ### **Bunny.net API Test:**
 ```bash
-curl https://natural-presence-production.up.railway.app/test-bunny
+curl https://web-production-3ba7e.up.railway.app/test-bunny
 # Should return: {"status": "success"}
 ```
 
@@ -236,7 +236,7 @@ curl https://natural-presence-production.up.railway.app/test-bunny
 
 ## 🚀 **Deployment Status**
 
-- ✅ **Railway Backend:** https://natural-presence-production.up.railway.app
+- ✅ **Railway Backend:** https://web-production-3ba7e.up.railway.app
 - ✅ **Vercel Frontend:** https://next-js-14-front-end-for-chat-plast.vercel.app
 - ✅ **Bunny.net Stream:** Configured and working
 - ✅ **WebSocket:** Real-time messaging active
