@@ -252,7 +252,7 @@ async def health_check():
 
   return {
     "status": "healthy",
-    "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
+    "timestamp": datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
     "version": "2.0.0",
     "environment": os.getenv("ENVIRONMENT", "development"),
     "services": {
@@ -497,7 +497,7 @@ async def create_live_stream(room_id: str, stream_data: StreamCreate):
         "playback_id": live_stream.playback_id,
         "title": live_stream.title,
         "message": f"🔴 Live stream '{stream_data.title}' started",
-        "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
+        "timestamp": datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z"
       }
       await manager.broadcast_to_room(json.dumps(stream_message), room_id)
 
@@ -607,7 +607,7 @@ async def create_video_upload(room_id: str, upload_data: VideoUploadCreate, requ
       "description": upload_data.description or "",
       "room_id": room_id,
       "status": "pending",
-      "created_at": datetime.now(timezone.utc).isoformat() + "Z",
+      "created_at": datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
       "bunny_upload_url": bunny_upload_url
     }
 
@@ -627,7 +627,7 @@ async def create_video_upload(room_id: str, upload_data: VideoUploadCreate, requ
       "upload_url": upload_url,
       "title": title,
       "message": f"📹 Video upload '{title}' ready. Upload to the provided URL.",
-      "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
+      "timestamp": datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z"
     }
     
     try:
@@ -732,7 +732,7 @@ async def bunny_webhook(request: Request):
           "video_id": video_id,
           "title": video["title"],
           "message": f"🎬 Video '{video['title']}' uploaded and processing started",
-          "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
+          "timestamp": datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z"
         }
         await manager.broadcast_to_room(json.dumps(processing_message), room_id)
 
@@ -752,7 +752,7 @@ async def bunny_webhook(request: Request):
           "playback_url": f"https://{BUNNY_PULL_ZONE}.b-cdn.net/{video_id}/playlist.m3u8",
           "title": video["title"],
           "message": f"🎥 Video '{video['title']}' is ready to watch",
-          "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
+          "timestamp": datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z"
         }
         await manager.broadcast_to_room(json.dumps(video_ready_message), room_id)
 
@@ -784,7 +784,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
   join_message = {
     "type": "user_joined",
     "message": f"{user.username} joined the chat",
-    "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
+    "timestamp": datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z"
   }
   await manager.broadcast_to_room(json.dumps(join_message), room_id)
 
@@ -809,7 +809,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
         username=user.username,
         room_id=room_id,
         content=message_data["content"].strip(),
-        timestamp=datetime.now(timezone.utc).isoformat() + "Z"
+        timestamp=datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z"
       )
 
       # Store message
@@ -831,7 +831,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
     leave_message = {
       "type": "user_left",
       "message": f"{user.username} left the chat",
-      "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
+      "timestamp": datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z"
     }
     await manager.broadcast_to_room(json.dumps(leave_message), room_id)
     logger.info(f"WebSocket disconnected for user {user.username}")
@@ -1083,3 +1083,4 @@ window.onload=loadRooms;
 def get_chat_page():
   """Serve the optimized chat interface"""
   return CHAT_HTML
+
