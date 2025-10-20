@@ -202,6 +202,7 @@ allowed_origins = [
   "http://localhost:3001",
   "https://localhost:3000",
   "https://next-js-14-front-end-for-chat-plast.vercel.app",
+  "https://next-js-14-front-end-for-chat-plast-kappa.vercel.app",  # NEW URL
   "https://video-chat-frontend-ruby.vercel.app",
   "https://next-js-14-front-end-for-chat-plaster-repository-7vb273qqo.vercel.app",
 ]
