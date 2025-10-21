@@ -1,12 +1,12 @@
 """
-Test script for the Claude Agent SDK integration
+Test script for the Anthropic Claude SDK integration
 """
 import os
 from utils.claude_client import get_claude_client
 
 def test_claude_agent():
-    """Test basic Claude Agent SDK functionality"""
-    print("Testing Claude Agent SDK integration...")
+    """Test basic Claude SDK functionality"""
+    print("Testing Anthropic Claude SDK integration...")
     
     # Get the Claude client
     claude = get_claude_client()

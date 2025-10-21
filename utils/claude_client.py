@@ -3,7 +3,7 @@ Claude AI Client for content moderation and AI features
 """
 import os
 from typing import Optional
-from claude_agent_sdk import query, ClaudeAgentOptions
+import anthropic
 import logging
 import json
 
@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 class ClaudeClient:
     """
-    Client for Claude AI API integration using claude-agent-sdk.
+    Client for Claude AI API integration using Anthropic SDK.
     
     Features:
     - Content moderation
@@ -28,7 +28,7 @@ class ClaudeClient:
         if not self.api_key:
             logger.warning("Claude API key not found - AI features disabled")
         else:
-            self.client = True  # Just mark as enabled, we'll use claude_agent_sdk directly
+            self.client = anthropic.Anthropic(api_key=self.api_key)
             logger.info("? Claude AI client initialized")
     
     @property
@@ -59,22 +59,16 @@ class ClaudeClient:
             return "Claude AI is not configured. Add ANTHROPIC_API_KEY to enable AI features."
         
         try:
-            options = ClaudeAgentOptions(
+            message = self.client.messages.create(
+                model="claude-3-5-sonnet-20241022",  # Latest model
                 max_tokens=max_tokens,
                 temperature=temperature,
-                system=system_prompt if system_prompt else "You are a helpful AI assistant."
-            )
-            
-            response = query(
-                model="claude-3-5-sonnet-20241022",  # Latest model
+                system=system_prompt if system_prompt else "You are a helpful AI assistant.",
                 messages=[
                     {"role": "user", "content": prompt}
-                ],
-                options=options,
-                api_key=self.api_key
+                ]
             )
-            
-            return response.content
+            return message.content[0].text
         except Exception as e:
             logger.error(f"Claude API error: {e}")
             return f"Error generating response: {str(e)}"
