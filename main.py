@@ -442,7 +442,7 @@ async def create_live_stream(room_id: str, stream_data: StreamCreate):
     live_stream = LiveStream(
       id=mock_stream_id,
       stream_key=mock_stream_key,
-      playback_id: mock_stream_id,
+      playback_id=mock_stream_id,  # ✅ FIXED: Changed : to =
       status="mock_ready",
       room_id=room_id,
       title=stream_data.title,
