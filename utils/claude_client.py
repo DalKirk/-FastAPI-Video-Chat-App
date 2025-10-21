@@ -9,6 +9,11 @@ import json
 
 logger = logging.getLogger(__name__)
 
+# Model configuration - Use the latest available Claude model
+# Updated: January 2025
+CLAUDE_MODEL = "claude-3-5-sonnet-20241022"  # Latest as of Oct 2024
+FALLBACK_MODEL = "claude-3-5-sonnet-20240620"  # Fallback option
+
 
 class ClaudeClient:
     """
@@ -25,11 +30,15 @@ class ClaudeClient:
         """Initialize Claude client with API key"""
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
         self.client = None
+        self.active_model = CLAUDE_MODEL
         if not self.api_key:
             logger.warning("Claude API key not found - AI features disabled")
         else:
-            self.client = anthropic.Anthropic(api_key=self.api_key)
-            logger.info("✓ Claude AI client initialized")
+            try:
+                self.client = anthropic.Anthropic(api_key=self.api_key)
+                logger.info(f"✓ Claude AI client initialized with model: {self.active_model}")
+            except Exception as e:
+                logger.error(f"Failed to initialize Claude client: {e}")
     
     @property
     def is_enabled(self) -> bool:
@@ -60,7 +69,7 @@ class ClaudeClient:
         
         try:
             message = self.client.messages.create(
-                model="claude-3-5-sonnet-20241022",
+                model=self.active_model,
                 max_tokens=max_tokens,
                 temperature=temperature,
                 system=system_prompt if system_prompt else "You are a helpful AI assistant.",
@@ -69,6 +78,37 @@ class ClaudeClient:
                 ]
             )
             return message.content[0].text
+            
+        except anthropic.NotFoundError as e:
+            # Model not found - try fallback
+            logger.warning(f"Model {self.active_model} not found, trying fallback: {FALLBACK_MODEL}")
+            logger.error(f"Original error: {e}")
+            
+            try:
+                self.active_model = FALLBACK_MODEL
+                message = self.client.messages.create(
+                    model=self.active_model,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    system=system_prompt if system_prompt else "You are a helpful AI assistant.",
+                    messages=[
+                        {"role": "user", "content": prompt}
+                    ]
+                )
+                logger.info(f"✓ Successfully switched to fallback model: {self.active_model}")
+                return message.content[0].text
+            except Exception as fallback_error:
+                logger.error(f"Fallback model also failed: {fallback_error}")
+                return f"Error: Model not available. Please check Anthropic API status."
+                
+        except anthropic.AuthenticationError as e:
+            logger.error(f"Authentication error: {e}")
+            return "Error: Invalid API key. Please check your ANTHROPIC_API_KEY."
+            
+        except anthropic.RateLimitError as e:
+            logger.error(f"Rate limit error: {e}")
+            return "Error: Rate limit exceeded. Please try again later."
+            
         except Exception as e:
             logger.error(f"Claude API error: {e}")
             return f"Error generating response: {str(e)}"
@@ -170,6 +210,14 @@ Respond ONLY with a JSON object:
         prompt = f"Context: {context}\n\nMessage: {user_message}\n\nSuggest a friendly reply:"
         
         return self.generate_response(prompt, max_tokens=100, temperature=0.8, system_prompt=system_prompt)
+    
+    def get_model_info(self) -> dict:
+        """Get information about the active model"""
+        return {
+            "active_model": self.active_model,
+            "fallback_model": FALLBACK_MODEL,
+            "is_enabled": self.is_enabled
+        }
 
 
 # Global instance

@@ -62,7 +62,11 @@ async def generate_ai_response(request: AIRequest):
             max_tokens=request.max_tokens,
             temperature=request.temperature
         )
-        return {"response": response, "model": "claude-3-5-sonnet"}
+        model_info = claude.get_model_info()
+        return {
+            "response": response, 
+            "model": model_info["active_model"]
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI generation failed: {str(e)}")
 
@@ -185,9 +189,12 @@ async def suggest_smart_reply(request: SmartReplyRequest):
 async def ai_health_check():
     """Check if AI features are available"""
     claude = get_claude_client()
+    model_info = claude.get_model_info() if claude.is_enabled else {}
+    
     return {
         "ai_enabled": claude.is_enabled,
-        "model": "claude-3-5-sonnet-20241022" if claude.is_enabled else None,
+        "model": model_info.get("active_model") if claude.is_enabled else None,
+        "fallback_model": model_info.get("fallback_model") if claude.is_enabled else None,
         "features": [
             "content_moderation",
             "spam_detection",
@@ -199,5 +206,5 @@ async def ai_health_check():
 
 
 # To use these endpoints in your main.py, add:
-# from ai_endpoints import ai_router
+# from utils.ai_endpoints import ai_router
 # app.include_router(ai_router)
