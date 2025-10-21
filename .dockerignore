@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Documentation
+*.md
+!README.md
+docs/
+
+# Tests
+tests/
+*_test.py
+test_*.py
+
+# Environment files (don't include in Docker image)
+.env
+.env.local
+.env.*.local
+
+# Temporary files
+*.log
+*.pid
+*.seed
+*.tmp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Don't exclude these important directories!
+# Ensure utils, middleware, database, backend are included
+!utils/
+!middleware/
+!database/
+!backend/
