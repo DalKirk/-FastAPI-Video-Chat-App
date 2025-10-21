@@ -11,8 +11,8 @@ logger = logging.getLogger(__name__)
 
 # Model configuration - Use the latest available Claude model
 # Updated: January 2025
-CLAUDE_MODEL = "claude-3-5-sonnet-20241022"  # Latest as of Oct 2024
-FALLBACK_MODEL = "claude-3-5-sonnet-20240620"  # Fallback option
+CLAUDE_MODEL = "claude-sonnet-4-5-20250929"  # Latest Claude 4.5 Sonnet
+FALLBACK_MODEL = "claude-3-5-sonnet-20241022"  # Fallback to Claude 3.5 if 4.5 unavailable
 
 
 class ClaudeClient:

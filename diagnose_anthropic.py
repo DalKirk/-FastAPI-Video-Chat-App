@@ -38,7 +38,8 @@ def test_anthropic_connection():
     print("=" * 60 + "\n")
     
     models_to_test = [
-        ("claude-3-5-sonnet-20241022", "Latest Claude 3.5 Sonnet (Oct 2024)"),
+        ("claude-sonnet-4-5-20250929", "Latest Claude 4.5 Sonnet (Sept 2025)"),
+        ("claude-3-5-sonnet-20241022", "Claude 3.5 Sonnet (Oct 2024)"),
         ("claude-3-5-sonnet-20240620", "Claude 3.5 Sonnet (June 2024)"),
         ("claude-3-haiku-20240307", "Claude 3 Haiku (Cost-effective)"),
     ]
