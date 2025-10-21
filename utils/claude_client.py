@@ -29,7 +29,7 @@ class ClaudeClient:
             logger.warning("Claude API key not found - AI features disabled")
         else:
             self.client = anthropic.Anthropic(api_key=self.api_key)
-            logger.info("? Claude AI client initialized")
+            logger.info("✓ Claude AI client initialized")
     
     @property
     def is_enabled(self) -> bool:
@@ -60,7 +60,7 @@ class ClaudeClient:
         
         try:
             message = self.client.messages.create(
-                model="claude-3-5-sonnet-20241022",  # Latest model
+                model="claude-3-5-sonnet-20241022",
                 max_tokens=max_tokens,
                 temperature=temperature,
                 system=system_prompt if system_prompt else "You are a helpful AI assistant.",

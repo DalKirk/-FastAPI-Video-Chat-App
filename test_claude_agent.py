@@ -12,20 +12,22 @@ def test_claude_agent():
     claude = get_claude_client()
     
     if not claude.is_enabled:
-        print("Claude AI is not configured. Add ANTHROPIC_API_KEY to environment.")
+        print("❌ Claude AI is not configured. Add ANTHROPIC_API_KEY to environment.")
         return
     
+    print("✓ Claude client initialized")
+    
     # Test generating a response
-    print("\nGenerating a response...")
+    print("\n📝 Generating a response...")
     response = claude.generate_response("Hello! Can you tell me a fun fact about space?")
     print(f"Response: {response}")
     
     # Test content moderation
-    print("\nTesting content moderation...")
+    print("\n🛡️ Testing content moderation...")
     moderation = claude.moderate_content("This is a test message, please moderate it.")
     print(f"Moderation: {moderation}")
     
-    print("\nTests completed!")
+    print("\n✅ Tests completed!")
 
 if __name__ == "__main__":
     test_claude_agent()
