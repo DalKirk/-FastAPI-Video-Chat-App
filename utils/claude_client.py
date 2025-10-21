@@ -3,15 +3,16 @@ Claude AI Client for content moderation and AI features
 """
 import os
 from typing import Optional
-from anthropic import Anthropic
+from claude_agent_sdk import query, ClaudeAgentOptions
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 
 
 class ClaudeClient:
     """
-    Client for Claude AI API integration.
+    Client for Claude AI API integration using claude-agent-sdk.
     
     Features:
     - Content moderation
@@ -23,11 +24,11 @@ class ClaudeClient:
     def __init__(self, api_key: Optional[str] = None):
         """Initialize Claude client with API key"""
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
+        self.client = None
         if not self.api_key:
             logger.warning("Claude API key not found - AI features disabled")
-            self.client = None
         else:
-            self.client = Anthropic(api_key=self.api_key)
+            self.client = True  # Just mark as enabled, we'll use claude_agent_sdk directly
             logger.info("? Claude AI client initialized")
     
     @property
@@ -58,16 +59,22 @@ class ClaudeClient:
             return "Claude AI is not configured. Add ANTHROPIC_API_KEY to enable AI features."
         
         try:
-            message = self.client.messages.create(
-                model="claude-3-5-sonnet-20241022",  # Latest model
+            options = ClaudeAgentOptions(
                 max_tokens=max_tokens,
                 temperature=temperature,
-                system=system_prompt if system_prompt else "You are a helpful AI assistant.",
+                system=system_prompt if system_prompt else "You are a helpful AI assistant."
+            )
+            
+            response = query(
+                model="claude-3-5-sonnet-20241022",  # Latest model
                 messages=[
                     {"role": "user", "content": prompt}
-                ]
+                ],
+                options=options,
+                api_key=self.api_key
             )
-            return message.content[0].text
+            
+            return response.content
         except Exception as e:
             logger.error(f"Claude API error: {e}")
             return f"Error generating response: {str(e)}"
@@ -110,7 +117,6 @@ Respond ONLY with a JSON object:
             )
             
             # Parse JSON response
-            import json
             result = json.loads(response)
             return result
         except Exception as e:
