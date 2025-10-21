@@ -21,6 +21,9 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
+# Claude AI endpoints
+from utils.ai_endpoints import ai_router
+
 # Load the .env file
 load_dotenv()
 
@@ -231,6 +234,9 @@ async def global_exception_handler(request: Request, exc: Exception):
     content={"detail": "Internal server error"}
   )
 
+# Include AI endpoints router
+app.include_router(ai_router)
+
 manager = ConnectionManager()
 
 # API Endpoints
@@ -436,7 +442,7 @@ async def create_live_stream(room_id: str, stream_data: StreamCreate):
     live_stream = LiveStream(
       id=mock_stream_id,
       stream_key=mock_stream_key,
-      playback_id=mock_stream_id,
+      playback_id: mock_stream_id,
       status="mock_ready",
       room_id=room_id,
       title=stream_data.title,
