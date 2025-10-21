@@ -3,6 +3,7 @@ Claude AI Client for content moderation and AI features
 """
 import os
 from typing import Optional
+from datetime import datetime
 import anthropic
 import logging
 import json
@@ -45,6 +46,11 @@ class ClaudeClient:
         """Check if Claude client is enabled"""
         return self.client is not None
     
+    def _get_current_date_context(self) -> str:
+        """Get current date and time context for Claude"""
+        now = datetime.now()
+        return f"The current date and time is {now.strftime('%A, %B %d, %Y at %I:%M %p')}."
+    
     def generate_response(
         self,
         prompt: str,
@@ -67,12 +73,19 @@ class ClaudeClient:
         if not self.is_enabled:
             return "Claude AI is not configured. Add ANTHROPIC_API_KEY to enable AI features."
         
+        # Prepare system prompt with date context
+        date_context = self._get_current_date_context()
+        if system_prompt:
+            full_system_prompt = f"{date_context}\n\n{system_prompt}"
+        else:
+            full_system_prompt = f"{date_context}\n\nYou are a helpful AI assistant."
+        
         try:
             message = self.client.messages.create(
                 model=self.active_model,
                 max_tokens=max_tokens,
                 temperature=temperature,
-                system=system_prompt if system_prompt else "You are a helpful AI assistant.",
+                system=full_system_prompt,
                 messages=[
                     {"role": "user", "content": prompt}
                 ]
@@ -90,7 +103,7 @@ class ClaudeClient:
                     model=self.active_model,
                     max_tokens=max_tokens,
                     temperature=temperature,
-                    system=system_prompt if system_prompt else "You are a helpful AI assistant.",
+                    system=full_system_prompt,
                     messages=[
                         {"role": "user", "content": prompt}
                     ]
