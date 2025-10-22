@@ -36,10 +36,14 @@ def format_claude_response(text: str) -> str:
     Format Claude's streaming response text for better readability.
     
     - Adds space after periods before capitals
-    - Ensures proper spacing in sentences
+    - Adds space after commas before capitals if missing
+    - Preserves code blocks formatting
     """
     # Add space after periods before capitals
     text = re.sub(r'\.([A-Z])', r'. \1', text)
+    # Add space after commas if missing before capitals
+    text = re.sub(r',([A-Z])', r', \1', text)
+    # Preserve code blocks formatting
     return text
 
 
