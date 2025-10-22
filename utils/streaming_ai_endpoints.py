@@ -9,6 +9,7 @@ from typing import List, Dict, Optional
 from utils.claude_client import get_claude_client
 import json
 import anthropic
+import re
 
 # Create router for streaming AI endpoints
 streaming_ai_router = APIRouter(prefix="/ai/stream", tags=["AI Streaming"])
@@ -30,6 +31,18 @@ class StreamGenerateRequest(BaseModel):
     system_prompt: Optional[str] = None
 
 
+def format_claude_response(text: str) -> str:
+    """
+    Format Claude's streaming response text for better readability.
+    
+    - Adds space after periods before capitals
+    - Ensures proper spacing in sentences
+    """
+    # Add space after periods before capitals
+    text = re.sub(r'\.([A-Z])', r'. \1', text)
+    return text
+
+
 # Streaming Chat Endpoint (Multi-turn conversations)
 @streaming_ai_router.post("/chat")
 async def stream_chat(request: StreamChatRequest):
@@ -46,7 +59,7 @@ async def stream_chat(request: StreamChatRequest):
             "temperature": 0.7
         }
     
-    Returns: Server-Sent Events stream
+    Returns: Server-Sent Events stream with formatted text
     """
     claude = get_claude_client()
     
@@ -57,7 +70,7 @@ async def stream_chat(request: StreamChatRequest):
         )
     
     async def generate():
-        """Generate streaming response"""
+        """Generate streaming response with formatting"""
         try:
             # Add date context if system prompt provided
             system_prompt = request.system
@@ -74,8 +87,10 @@ async def stream_chat(request: StreamChatRequest):
                 messages=request.messages
             ) as stream:
                 for text in stream.text_stream:
+                    # Format the text for better readability
+                    formatted_text = format_claude_response(text)
                     # Format as Server-Sent Event
-                    yield f"data: {json.dumps({'text': text, 'type': 'content'})}\n\n"
+                    yield f"data: {json.dumps({'text': formatted_text, 'type': 'content'})}\n\n"
             
             # Send completion event
             yield f"data: {json.dumps({'type': 'done', 'model': claude.active_model})}\n\n"
@@ -102,7 +117,7 @@ async def stream_chat(request: StreamChatRequest):
 @streaming_ai_router.post("/generate")
 async def stream_generate(request: StreamGenerateRequest):
     """
-    Stream Claude AI generation using Server-Sent Events (SSE).
+    Stream Claude AI generation using Server-Sent Events (SSE) with text formatting.
     
     Example:
         POST /ai/stream/generate
@@ -112,7 +127,7 @@ async def stream_generate(request: StreamGenerateRequest):
             "temperature": 0.8
         }
     
-    Returns: Server-Sent Events stream
+    Returns: Server-Sent Events stream with formatted text
     """
     claude = get_claude_client()
     
@@ -123,7 +138,7 @@ async def stream_generate(request: StreamGenerateRequest):
         )
     
     async def generate():
-        """Generate streaming response"""
+        """Generate streaming response with formatting"""
         try:
             # Prepare system prompt with date context
             date_context = claude._get_current_date_context()
@@ -144,8 +159,10 @@ async def stream_generate(request: StreamGenerateRequest):
                 messages=messages
             ) as stream:
                 for text in stream.text_stream:
+                    # Format the text for better readability
+                    formatted_text = format_claude_response(text)
                     # Format as Server-Sent Event
-                    yield f"data: {json.dumps({'text': text, 'type': 'content'})}\n\n"
+                    yield f"data: {json.dumps({'text': formatted_text, 'type': 'content'})}\n\n"
             
             # Send completion event
             yield f"data: {json.dumps({'type': 'done', 'model': claude.active_model})}\n\n"
@@ -163,7 +180,8 @@ async def stream_generate(request: StreamGenerateRequest):
                     messages=messages
                 ) as stream:
                     for text in stream.text_stream:
-                        yield f"data: {json.dumps({'text': text, 'type': 'content'})}\n\n"
+                        formatted_text = format_claude_response(text)
+                        yield f"data: {json.dumps({'text': formatted_text, 'type': 'content'})}\n\n"
                 
                 yield f"data: {json.dumps({'type': 'done', 'model': claude.active_model, 'fallback': True})}\n\n"
                 
@@ -196,7 +214,8 @@ async def streaming_health_check():
         "streaming_enabled": claude.is_enabled,
         "model": claude.active_model if claude.is_enabled else None,
         "supports_streaming": True,
-        "format": "Server-Sent Events (SSE)"
+        "format": "Server-Sent Events (SSE)",
+        "text_formatting": "enabled"
     }
 
 
