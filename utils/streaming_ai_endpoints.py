@@ -6,10 +6,10 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Dict, Optional
-from utils.claude_client import get_claude_client
+from utils.claude_client import get_claude_client, format_text
 import json
 import anthropic
-import re
+import logging
 
 # Create router for streaming AI endpoints
 streaming_ai_router = APIRouter(prefix="/ai/stream", tags=["AI Streaming"])
@@ -29,37 +29,6 @@ class StreamGenerateRequest(BaseModel):
     max_tokens: int = 2048
     temperature: float = 0.7
     system_prompt: Optional[str] = None
-
-
-def format_claude_response(text: str) -> str:
-    """
-    Fix Claude API responses that are missing spaces between words.
-    
-    Only adds spaces where genuinely missing (after punctuation without space),
-    but preserves proper nouns, technical terms, and acronyms.
-    """
-    # Add space after period before capital letter (only if no space already)
-    text = re.sub(r'\.([A-Z])', r'. \1', text)
-    
-    # Add space after comma before any letter (only if no space already)
-    text = re.sub(r',([A-Za-z])', r', \1', text)
-    
-    # Add space after colon before any letter (only if no space already)
-    text = re.sub(r':([A-Za-z])', r': \1', text)
-    
-    # Add space before opening parenthesis if preceded by letter/digit (only if no space already)
-    text = re.sub(r'([A-Za-z0-9])\(', r'\1 (', text)
-    
-    # Add space after closing parenthesis before capital (only if no space already)
-    text = re.sub(r'\)([A-Z])', r') \1', text)
-    
-    # Add space after exclamation/question mark before capital (only if no space already)
-    text = re.sub(r'([!?])([A-Z])', r'\1 \2', text)
-    
-    # Don't add spaces between camelCase or technical terms
-    # (removed the aggressive lowercase-to-uppercase pattern)
-    
-    return text
 
 
 # Streaming Chat Endpoint (Multi-turn conversations)
@@ -107,7 +76,7 @@ async def stream_chat(request: StreamChatRequest):
             ) as stream:
                 for text in stream.text_stream:
                     # Format the text for better readability
-                    formatted_text = format_claude_response(text)
+                    formatted_text = format_text(text)
                     # Format as Server-Sent Event
                     yield f"data: {json.dumps({'text': formatted_text, 'type': 'content'})}\n\n"
             
@@ -179,7 +148,7 @@ async def stream_generate(request: StreamGenerateRequest):
             ) as stream:
                 for text in stream.text_stream:
                     # Format the text for better readability
-                    formatted_text = format_claude_response(text)
+                    formatted_text = format_text(text)
                     # Format as Server-Sent Event
                     yield f"data: {json.dumps({'text': formatted_text, 'type': 'content'})}\n\n"
             
@@ -199,7 +168,7 @@ async def stream_generate(request: StreamGenerateRequest):
                     messages=messages
                 ) as stream:
                     for text in stream.text_stream:
-                        formatted_text = format_claude_response(text)
+                        formatted_text = format_text(text)
                         yield f"data: {json.dumps({'text': formatted_text, 'type': 'content'})}\n\n"
                 
                 yield f"data: {json.dumps({'type': 'done', 'model': claude.active_model, 'fallback': True})}\n\n"

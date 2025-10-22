@@ -7,6 +7,7 @@ from datetime import datetime
 import anthropic
 import logging
 import json
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +15,59 @@ logger = logging.getLogger(__name__)
 # Updated: January 2025
 CLAUDE_MODEL = "claude-sonnet-4-5-20250929"  # Latest Claude 4.5 Sonnet
 FALLBACK_MODEL = "claude-3-5-sonnet-20241022"  # Fallback to Claude 3.5 if 4.5 unavailable
+
+
+def format_text(text: str) -> str:
+    """
+    Format text to fix common spacing and grammar issues in Claude responses.
+    Shared between streaming and non-streaming endpoints.
+    """
+    if not text or len(text) < 2:
+        return text
+    
+    # Common patterns where spaces may be missing
+    
+    # 1. After punctuation marks followed by a capital letter or lowercase letter
+    text = re.sub(r'\.([A-Z])', r'. \1', text)  # Period followed by capital
+    text = re.sub(r'\.([a-z])', r'. \1', text)  # Period followed by lowercase
+    text = re.sub(r'\!([A-Za-z])', r'! \1', text)  # Exclamation mark
+    text = re.sub(r'\?([A-Za-z])', r'? \1', text)  # Question mark
+    text = re.sub(r',([A-Za-z])', r', \1', text)  # Comma
+    text = re.sub(r':([A-Za-z])', r': \1', text)  # Colon
+    text = re.sub(r';([A-Za-z])', r'; \1', text)  # Semicolon
+    
+    # 2. Around parentheses, brackets, and braces
+    text = re.sub(r'([A-Za-z0-9])\(', r'\1 (', text)  # Before opening parenthesis
+    text = re.sub(r'\)([A-Za-z0-9])', r') \1', text)  # After closing parenthesis
+    text = re.sub(r'([A-Za-z0-9])\[', r'\1 [', text)  # Before opening bracket
+    text = re.sub(r'\]([A-Za-z0-9])', r'] \1', text)  # After closing bracket
+    text = re.sub(r'([A-Za-z0-9])\{', r'\1 {', text)  # Before opening brace
+    text = re.sub(r'\}([A-Za-z0-9])', r'} \1', text)  # After closing brace
+    
+    # 3. Around quotes
+    text = re.sub(r'([A-Za-z0-9])"([A-Za-z0-9])', r'\1" \2', text)  # Between words and double quotes
+    text = re.sub(r'([A-Za-z0-9])\'([A-Za-z0-9])', r'\1\' \2', text)  # Between words and single quotes
+    
+    # 4. Fix spacing around dashes and hyphens
+    text = re.sub(r'([A-Za-z0-9])--([A-Za-z0-9])', r'\1 -- \2', text)  # Em dash
+    text = re.sub(r'([A-Za-z0-9])–([A-Za-z0-9])', r'\1 – \2', text)  # En dash
+    
+    # 5. Fix spacing between sentences that might be run together
+    text = re.sub(r'([a-z])\.([A-Z])', r'\1. \2', text)  # Lowercase period uppercase
+    
+    # 6. Fix periods without spaces in acronyms
+    text = re.sub(r'([a-z])\.([A-Z][a-z])', r'\1. \2', text)  # Period between lowercase and "Title case"
+    
+    # 7. Fix spacing in lists and enumerations
+    text = re.sub(r'(\d+)\.([\w])', r'\1. \2', text)  # Number followed by period and word
+    
+    # 8. Fix spaces between sections of a document
+    text = re.sub(r'([a-z])\n([A-Z])', r'\1\n\n\2', text)  # New paragraph should have blank line
+    
+    # 9. Make sure there's no double spaces
+    text = re.sub(r' {2,}', ' ', text)
+    
+    return text
 
 
 class ClaudeClient:
@@ -90,7 +144,19 @@ class ClaudeClient:
                     {"role": "user", "content": prompt}
                 ]
             )
-            return message.content[0].text
+            
+            # Log response stats
+            response_text = message.content[0].text
+            logger.info(f"Claude response received (length: {len(response_text)}, spaces: {response_text.count(' ')})")
+            
+            # Apply text formatting to fix spacing/grammar issues
+            formatted_text = format_text(response_text)
+            
+            # Log if formatting made changes
+            if formatted_text != response_text:
+                logger.info("Text formatting applied to fix grammar/spacing issues")
+            
+            return formatted_text
             
         except anthropic.NotFoundError as e:
             # Model not found - try fallback
@@ -109,7 +175,12 @@ class ClaudeClient:
                     ]
                 )
                 logger.info(f"✓ Successfully switched to fallback model: {self.active_model}")
-                return message.content[0].text
+                
+                # Apply text formatting to fix spacing/grammar issues
+                response_text = message.content[0].text
+                formatted_text = format_text(response_text)
+                
+                return formatted_text
             except Exception as fallback_error:
                 logger.error(f"Fallback model also failed: {fallback_error}")
                 return f"Error: Model not available. Please check Anthropic API status."

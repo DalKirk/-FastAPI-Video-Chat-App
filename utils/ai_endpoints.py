@@ -6,6 +6,9 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import List, Optional
 from utils.claude_client import get_claude_client
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Create router for AI endpoints
 ai_router = APIRouter(prefix="/ai", tags=["AI Features"])
@@ -63,9 +66,24 @@ async def generate_ai_response(request: AIRequest):
             temperature=request.temperature
         )
         model_info = claude.get_model_info()
+        
+        # ?? DIAGNOSTIC LOGGING - Before Sending to Frontend
+        logger.info('=== BEFORE SENDING TO FRONTEND ===')
+        logger.info(f'Response length: {len(response)}')
+        logger.info(f'Has spaces: {" " in response}')
+        logger.info(f'Space count: {response.count(" ")}')
+        logger.info(f'First 200 chars: {response[:200]}')
+        logger.info('================================')
+        
         return {
             "response": response, 
-            "model": model_info["active_model"]
+            "model": model_info["active_model"],
+            "debug_info": {
+                "response_length": len(response),
+                "has_spaces": " " in response,
+                "space_count": response.count(" "),
+                "word_count": len(response.split())
+            }
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI generation failed: {str(e)}")
