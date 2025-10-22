@@ -35,37 +35,30 @@ def format_claude_response(text: str) -> str:
     """
     Fix Claude API responses that are missing spaces between words.
     
-    - Adds space after periods before capitals
-    - Adds space after commas before capitals if missing
-    - Adds space between lowercase and capital (camelCase/word boundaries)
-    - Adds space after closing parenthesis before capital
-    - Adds space after colon before capital
-    - Adds space before opening parenthesis after lowercase
-    - Fixes numbers followed by capital letters
-    - Preserves code blocks formatting
+    Only adds spaces where genuinely missing (after punctuation without space),
+    but preserves proper nouns, technical terms, and acronyms.
     """
-    # Add space after period before capital letter
+    # Add space after period before capital letter (only if no space already)
     text = re.sub(r'\.([A-Z])', r'. \1', text)
     
-    # Add space after comma before capital letter
-    text = re.sub(r',([A-Z])', r', \1', text)
+    # Add space after comma before any letter (only if no space already)
+    text = re.sub(r',([A-Za-z])', r', \1', text)
     
-    # Add space between lowercase and capital (camelCase/word boundaries)
-    text = re.sub(r'([a-z])([A-Z])', r'\1 \2', text)
+    # Add space after colon before any letter (only if no space already)
+    text = re.sub(r':([A-Za-z])', r': \1', text)
     
-    # Add space after closing parenthesis before capital
+    # Add space before opening parenthesis if preceded by letter/digit (only if no space already)
+    text = re.sub(r'([A-Za-z0-9])\(', r'\1 (', text)
+    
+    # Add space after closing parenthesis before capital (only if no space already)
     text = re.sub(r'\)([A-Z])', r') \1', text)
     
-    # Add space after colon before capital
-    text = re.sub(r':([A-Z])', r': \1', text)
+    # Add space after exclamation/question mark before capital (only if no space already)
+    text = re.sub(r'([!?])([A-Z])', r'\1 \2', text)
     
-    # Add space before opening parenthesis after lowercase
-    text = re.sub(r'([a-z])\(', r'\1 (', text)
+    # Don't add spaces between camelCase or technical terms
+    # (removed the aggressive lowercase-to-uppercase pattern)
     
-    # Fix number followed by capital letter
-    text = re.sub(r'(\d)([A-Z])', r'\1 \2', text)
-    
-    # Preserve code blocks formatting
     return text
 
 
