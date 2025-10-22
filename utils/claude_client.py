@@ -16,62 +16,6 @@ logger = logging.getLogger(__name__)
 CLAUDE_MODEL = "claude-sonnet-4-5-20250929"  # Latest Claude 4.5 Sonnet
 FALLBACK_MODEL = "claude-3-5-sonnet-20241022"  # Fallback to Claude 3.5 if 4.5 unavailable
 
-# Optional smart spacing flag (disabled by default for safety)
-ENABLE_SMART_SPACING = os.getenv("ENABLE_SMART_SPACING", "false").lower() == "true"
-
-# Try to import word segmentation lazily
-_ws_loaded = False
-try:
-    from wordsegment import load as _ws_load, segment as _ws_segment
-    def _ensure_ws_loaded():
-        global _ws_loaded
-        if not _ws_loaded:
-            try:
-                _ws_load()
-                _ws_loaded = True
-            except Exception:
-                _ws_loaded = False
-except Exception:
-    def _ensure_ws_loaded():
-        # wordsegment not available
-        return
-    _ws_segment = None  # type: ignore
-
-
-def _segment_run_on_words(text: str) -> str:
-    """Best-effort segmentation of very long run-on alphabetic tokens.
-    Only applied when ENABLE_SMART_SPACING=true and wordsegment is available.
-    """
-    if not ENABLE_SMART_SPACING or _ws_segment is None:
-        return text
-
-    _ensure_ws_loaded()
-    if not _ws_loaded:
-        return text
-
-    def should_segment(token: str) -> bool:
-        # Segment only long alphabetic tokens with no internal spaces
-        # Avoid tokens containing digits, underscores, or obvious code
-        return token.isalpha() and len(token) >= 12
-
-    # Split but keep delimiters
-    parts = re.split(r"(\s+)", text)
-    out_parts = []
-    for part in parts:
-        if part and not part.isspace() and should_segment(part):
-            try:
-                words = _ws_segment(part.lower())
-                segmented = " ".join(words)
-                # Preserve leading capitalization
-                if part[0].isupper():
-                    segmented = segmented.capitalize()
-                out_parts.append(segmented)
-            except Exception:
-                out_parts.append(part)
-        else:
-            out_parts.append(part)
-    return "".join(out_parts)
-
 
 def format_text(text: str) -> str:
     """
@@ -122,9 +66,6 @@ def format_text(text: str) -> str:
     
     # 9. Make sure there's no double spaces
     text = re.sub(r' {2,}', ' ', text)
-
-    # 10. Optional: smart segmentation of long run-on words
-    text = _segment_run_on_words(text)
     
     return text
 

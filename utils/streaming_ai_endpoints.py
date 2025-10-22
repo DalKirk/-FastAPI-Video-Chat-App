@@ -31,6 +31,29 @@ class StreamGenerateRequest(BaseModel):
     system_prompt: Optional[str] = None
 
 
+def _needs_leading_space(prev_last: Optional[str], nxt: str) -> bool:
+    """Decide whether to insert a space at chunk boundary.
+    Insert when previous non-space char is sentence/phrase punctuation and the
+    current chunk begins with a letter/number and not already a space.
+    """
+    if not prev_last or not nxt:
+        return False
+    first = nxt[0]
+    if first.isspace():
+        return False
+    boundary_punct = ".!?,:;)\]"  # common punctuation that should be followed by space
+    if prev_last in boundary_punct and (first.isalnum() or first in '"\'('):
+        return True
+    return False
+
+
+def _last_non_space(text: str) -> Optional[str]:
+    for ch in reversed(text):
+        if not ch.isspace():
+            return ch
+    return None
+
+
 # Streaming Chat Endpoint (Multi-turn conversations)
 @streaming_ai_router.post("/chat")
 async def stream_chat(request: StreamChatRequest):
@@ -58,7 +81,7 @@ async def stream_chat(request: StreamChatRequest):
         )
     
     async def generate():
-        """Generate streaming response with formatting"""
+        """Generate streaming response with formatting and boundary fixes"""
         try:
             # Add date context if system prompt provided
             system_prompt = request.system
@@ -66,6 +89,8 @@ async def stream_chat(request: StreamChatRequest):
                 date_context = claude._get_current_date_context()
                 system_prompt = f"{date_context}\n\n{system_prompt}"
             
+            prev_last = None  # track last non-space character emitted
+
             # Stream from Claude API
             with claude.client.messages.stream(
                 model=claude.active_model,
@@ -75,9 +100,15 @@ async def stream_chat(request: StreamChatRequest):
                 messages=request.messages
             ) as stream:
                 for text in stream.text_stream:
-                    # Format the text for better readability
-                    formatted_text = format_text(text)
-                    # Format as Server-Sent Event
+                    chunk = text or ""
+                    # Fix missing space at chunk boundary
+                    if _needs_leading_space(prev_last, chunk):
+                        chunk = " " + chunk
+                    # Per-chunk formatting (punctuation spacing etc.)
+                    formatted_text = format_text(chunk)
+                    # Update boundary state for next chunk
+                    prev_last = _last_non_space(formatted_text) or prev_last
+                    # Emit
                     yield f"data: {json.dumps({'text': formatted_text, 'type': 'content'})}\n\n"
             
             # Send completion event
@@ -126,7 +157,7 @@ async def stream_generate(request: StreamGenerateRequest):
         )
     
     async def generate():
-        """Generate streaming response with formatting"""
+        """Generate streaming response with formatting and boundary fixes"""
         try:
             # Prepare system prompt with date context
             date_context = claude._get_current_date_context()
@@ -137,6 +168,8 @@ async def stream_generate(request: StreamGenerateRequest):
             
             # Convert prompt to messages format
             messages = [{"role": "user", "content": request.prompt}]
+
+            prev_last = None  # track last non-space character emitted
             
             # Stream from Claude API
             with claude.client.messages.stream(
@@ -147,9 +180,11 @@ async def stream_generate(request: StreamGenerateRequest):
                 messages=messages
             ) as stream:
                 for text in stream.text_stream:
-                    # Format the text for better readability
-                    formatted_text = format_text(text)
-                    # Format as Server-Sent Event
+                    chunk = text or ""
+                    if _needs_leading_space(prev_last, chunk):
+                        chunk = " " + chunk
+                    formatted_text = format_text(chunk)
+                    prev_last = _last_non_space(formatted_text) or prev_last
                     yield f"data: {json.dumps({'text': formatted_text, 'type': 'content'})}\n\n"
             
             # Send completion event
@@ -159,7 +194,7 @@ async def stream_generate(request: StreamGenerateRequest):
             # Try fallback model
             try:
                 claude.active_model = claude.get_model_info()["fallback_model"]
-                
+                prev_last = None
                 with claude.client.messages.stream(
                     model=claude.active_model,
                     max_tokens=request.max_tokens,
@@ -168,7 +203,11 @@ async def stream_generate(request: StreamGenerateRequest):
                     messages=messages
                 ) as stream:
                     for text in stream.text_stream:
-                        formatted_text = format_text(text)
+                        chunk = text or ""
+                        if _needs_leading_space(prev_last, chunk):
+                            chunk = " " + chunk
+                        formatted_text = format_text(chunk)
+                        prev_last = _last_non_space(formatted_text) or prev_last
                         yield f"data: {json.dumps({'text': formatted_text, 'type': 'content'})}\n\n"
                 
                 yield f"data: {json.dumps({'type': 'done', 'model': claude.active_model, 'fallback': True})}\n\n"
