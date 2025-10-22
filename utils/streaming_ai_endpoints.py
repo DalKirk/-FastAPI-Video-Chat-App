@@ -5,7 +5,7 @@ Add this to your main.py or import the streaming_ai_router
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 from utils.claude_client import get_claude_client, format_text
 import json
 import anthropic
@@ -31,17 +31,18 @@ class StreamGenerateRequest(BaseModel):
     system_prompt: Optional[str] = None
 
 
-def _needs_leading_space(prev_last: Optional[str], nxt: str) -> bool:
+def _needs_leading_space(prev_last: Optional[str], nxt: str, in_code: bool) -> bool:
     """Decide whether to insert a space at chunk boundary.
     Insert when previous non-space char is sentence/phrase punctuation and the
     current chunk begins with a letter/number and not already a space.
+    Never insert inside code blocks or before a code fence.
     """
-    if not prev_last or not nxt:
+    if in_code or not prev_last or not nxt:
         return False
     first = nxt[0]
-    if first.isspace():
+    if first.isspace() or first == '`':
         return False
-    boundary_punct = ".!?,:;)\]"  # common punctuation that should be followed by space
+    boundary_punct = ".!?,:;)\]"  # punctuation that should be followed by space
     if prev_last in boundary_punct and (first.isalnum() or first in '"\'('):
         return True
     return False
@@ -52,6 +53,51 @@ def _last_non_space(text: str) -> Optional[str]:
         if not ch.isspace():
             return ch
     return None
+
+
+def _process_chunk_with_code_fences(chunk: str, in_code: bool, prev_last: Optional[str]) -> Tuple[str, bool, Optional[str]]:
+    """Split chunk on triple backticks and only format non-code segments.
+    Returns (emitted_text, new_in_code_state, new_prev_last_char)
+    """
+    if not chunk:
+        return chunk, in_code, prev_last
+
+    # Optionally insert a space at the very front if needed (and not in code)
+    if _needs_leading_space(prev_last, chunk, in_code):
+        chunk = " " + chunk
+
+    # Fast path: no fences in this chunk
+    if "```" not in chunk:
+        if in_code:
+            emitted = chunk
+        else:
+            emitted = format_text(chunk)
+        return emitted, in_code, _last_non_space(emitted) or prev_last
+
+    parts = chunk.split("```")
+    emitted_parts: List[str] = []
+    current_in_code = in_code
+
+    for i, part in enumerate(parts):
+        if i == 0:
+            # Leading segment before first fence
+            if current_in_code:
+                emitted_parts.append(part)
+            else:
+                emitted_parts.append(format_text(part))
+        else:
+            # Re-insert the fence
+            emitted_parts.append("```")
+            # Toggle code state after each fence
+            current_in_code = not current_in_code
+            # Append the content following the fence without modification if in code
+            if current_in_code:
+                emitted_parts.append(part)
+            else:
+                emitted_parts.append(format_text(part))
+
+    emitted_text = "".join(emitted_parts)
+    return emitted_text, current_in_code, _last_non_space(emitted_text) or prev_last
 
 
 # Streaming Chat Endpoint (Multi-turn conversations)
@@ -83,13 +129,21 @@ async def stream_chat(request: StreamChatRequest):
     async def generate():
         """Generate streaming response with formatting and boundary fixes"""
         try:
-            # Add date context if system prompt provided
-            system_prompt = request.system
+            # Add date context if system prompt provided. Also, guide code formatting.
+            system_prompt = request.system or ""
+            guidance = (
+                "When including code, wrap it in triple backticks with a language identifier"
+                " (e.g., ```python) and preserve whitespace/newlines exactly."
+            )
             if system_prompt:
                 date_context = claude._get_current_date_context()
-                system_prompt = f"{date_context}\n\n{system_prompt}"
+                system_prompt = f"{date_context}\n\n{system_prompt}\n\n{guidance}"
+            else:
+                date_context = claude._get_current_date_context()
+                system_prompt = f"{date_context}\n\nYou are a helpful AI assistant. {guidance}"
             
             prev_last = None  # track last non-space character emitted
+            in_code = False   # track if inside a code block
 
             # Stream from Claude API
             with claude.client.messages.stream(
@@ -101,15 +155,8 @@ async def stream_chat(request: StreamChatRequest):
             ) as stream:
                 for text in stream.text_stream:
                     chunk = text or ""
-                    # Fix missing space at chunk boundary
-                    if _needs_leading_space(prev_last, chunk):
-                        chunk = " " + chunk
-                    # Per-chunk formatting (punctuation spacing etc.)
-                    formatted_text = format_text(chunk)
-                    # Update boundary state for next chunk
-                    prev_last = _last_non_space(formatted_text) or prev_last
-                    # Emit
-                    yield f"data: {json.dumps({'text': formatted_text, 'type': 'content'})}\n\n"
+                    emitted, in_code, prev_last = _process_chunk_with_code_fences(chunk, in_code, prev_last)
+                    yield f"data: {json.dumps({'text': emitted, 'type': 'content'})}\n\n"
             
             # Send completion event
             yield f"data: {json.dumps({'type': 'done', 'model': claude.active_model})}\n\n"
@@ -159,17 +206,22 @@ async def stream_generate(request: StreamGenerateRequest):
     async def generate():
         """Generate streaming response with formatting and boundary fixes"""
         try:
-            # Prepare system prompt with date context
+            # Prepare system prompt with date context and code formatting guidance
             date_context = claude._get_current_date_context()
+            guidance = (
+                "When including code, wrap it in triple backticks with a language identifier"
+                " (e.g., ```python) and preserve whitespace/newlines exactly."
+            )
             if request.system_prompt:
-                system_prompt = f"{date_context}\n\n{request.system_prompt}"
+                system_prompt = f"{date_context}\n\n{request.system_prompt}\n\n{guidance}"
             else:
-                system_prompt = f"{date_context}\n\nYou are a helpful AI assistant."
+                system_prompt = f"{date_context}\n\nYou are a helpful AI assistant. {guidance}"
             
             # Convert prompt to messages format
             messages = [{"role": "user", "content": request.prompt}]
 
             prev_last = None  # track last non-space character emitted
+            in_code = False   # track if inside a code block
             
             # Stream from Claude API
             with claude.client.messages.stream(
@@ -181,11 +233,8 @@ async def stream_generate(request: StreamGenerateRequest):
             ) as stream:
                 for text in stream.text_stream:
                     chunk = text or ""
-                    if _needs_leading_space(prev_last, chunk):
-                        chunk = " " + chunk
-                    formatted_text = format_text(chunk)
-                    prev_last = _last_non_space(formatted_text) or prev_last
-                    yield f"data: {json.dumps({'text': formatted_text, 'type': 'content'})}\n\n"
+                    emitted, in_code, prev_last = _process_chunk_with_code_fences(chunk, in_code, prev_last)
+                    yield f"data: {json.dumps({'text': emitted, 'type': 'content'})}\n\n"
             
             # Send completion event
             yield f"data: {json.dumps({'type': 'done', 'model': claude.active_model})}\n\n"
@@ -195,6 +244,7 @@ async def stream_generate(request: StreamGenerateRequest):
             try:
                 claude.active_model = claude.get_model_info()["fallback_model"]
                 prev_last = None
+                in_code = False
                 with claude.client.messages.stream(
                     model=claude.active_model,
                     max_tokens=request.max_tokens,
@@ -204,11 +254,8 @@ async def stream_generate(request: StreamGenerateRequest):
                 ) as stream:
                     for text in stream.text_stream:
                         chunk = text or ""
-                        if _needs_leading_space(prev_last, chunk):
-                            chunk = " " + chunk
-                        formatted_text = format_text(chunk)
-                        prev_last = _last_non_space(formatted_text) or prev_last
-                        yield f"data: {json.dumps({'text': formatted_text, 'type': 'content'})}\n\n"
+                        emitted, in_code, prev_last = _process_chunk_with_code_fences(chunk, in_code, prev_last)
+                        yield f"data: {json.dumps({'text': emitted, 'type': 'content'})}\n\n"
                 
                 yield f"data: {json.dumps({'type': 'done', 'model': claude.active_model, 'fallback': True})}\n\n"
                 
