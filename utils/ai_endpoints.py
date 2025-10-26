@@ -3,11 +3,11 @@ Example AI endpoints using Claude API
 Add these to your main.py to enable AI features
 """
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
-from typing import List, Optional, Any, Dict
+from typing import List
 from utils.claude_client import get_claude_client
 import logging
-import json
 
 logger = logging.getLogger(__name__)
 
@@ -31,100 +31,20 @@ class SmartReplyRequest(BaseModel):
     user_message: str
 
 
-# AI Generation Endpoint - tolerant parser
+# Legacy AI Generation Endpoint -> Redirect to new chat endpoint
 @ai_router.post("/generate")
-async def generate_ai_response(request: Request):
+async def generate_ai_response(_: Request):
     """
-    Generate AI response using Claude.
-
-    Accepts payloads:
-    - {"prompt": "..."
-    - {"message"|"input"|"query"|"text": "..."
-    - JSON string body: "....
-    - Raw text/plain body: ...
-
-    Optional fields: {"max_tokens": int, "temperature": float}
+    DEPRECATED: Redirects to the new context-aware chat endpoint.
+    Preserves method and body via 307 Temporary Redirect.
     """
-    claude = get_claude_client()
-
-    if not claude.is_enabled:
-        raise HTTPException(
-            status_code=503,
-            detail="Claude AI is not configured. Add ANTHROPIC_API_KEY to environment."
-        )
-
-    # Defaults
-    prompt: Optional[str] = None
-    max_tokens: int = 1000
-    temperature: float = 0.7
-
-    # Try JSON first
-    body_bytes = await request.body()
-    raw_text = (body_bytes or b"").decode("utf-8", errors="ignore").strip()
-
-    data: Any = None
-    if raw_text:
-        # If it's JSON, parse it; else treat as plain text
-        try:
-            data = json.loads(raw_text)
-        except json.JSONDecodeError:
-            data = raw_text
-
-    # Coerce into prompt and optional params
-    if isinstance(data, dict):
-        prompt = (
-            data.get("prompt")
-            or data.get("message")
-            or data.get("input")
-            or data.get("query")
-            or data.get("text")
-        )
-        # Optional overrides
-        if isinstance(data.get("max_tokens"), int):
-            max_tokens = int(data["max_tokens"])
-        if isinstance(data.get("temperature"), (int, float)):
-            temperature = float(data["temperature"])
-    elif isinstance(data, str):
-        prompt = data
-
-    if not prompt or not isinstance(prompt, str) or not prompt.strip():
-        raise HTTPException(status_code=422, detail="Missing prompt. Provide 'prompt' or 'message' (string body allowed).")
-
-    try:
-        response = claude.generate_response(
-            prompt=prompt.strip(),
-            max_tokens=max_tokens,
-            temperature=temperature
-        )
-        model_info = claude.get_model_info()
-
-        logger.info('=== BEFORE SENDING TO FRONTEND ===')
-        logger.info(f'Response length: {len(response)}')
-        logger.info(f'Has spaces: {" " in response}')
-        logger.info(f'Space count: {response.count(" ")}')
-        logger.info(f'First 200 chars: {response[:200]}')
-        logger.info('================================')
-
-        return {
-            "response": response,
-            "model": model_info["active_model"],
-            "debug_info": {
-                "response_length": len(response),
-                "has_spaces": " " in response,
-                "space_count": response.count(" "),
-                "word_count": len(response.split())
-            }
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"AI generation failed: {str(e)}")
+    return RedirectResponse(url="/api/v1/chat", status_code=307)
 
 
 # Content Moderation Endpoint
 @ai_router.post("/moderate")
 async def moderate_content(request: ContentModerationRequest):
-    """
-    Moderate content for safety.
-    """
+    """Moderate content for safety."""
     claude = get_claude_client()
 
     if not claude.is_enabled:
@@ -145,9 +65,7 @@ async def moderate_content(request: ContentModerationRequest):
 # Spam Detection Endpoint
 @ai_router.post("/detect-spam")
 async def detect_spam(request: ContentModerationRequest):
-    """
-    Detect if message is spam.
-    """
+    """Detect if message is spam."""
     claude = get_claude_client()
 
     if not claude.is_enabled:
@@ -163,9 +81,7 @@ async def detect_spam(request: ContentModerationRequest):
 # Conversation Summary Endpoint
 @ai_router.post("/summarize")
 async def summarize_conversation(request: ConversationSummaryRequest):
-    """
-    Summarize a conversation.
-    """
+    """Summarize a conversation."""
     claude = get_claude_client()
 
     if not claude.is_enabled:
@@ -181,9 +97,7 @@ async def summarize_conversation(request: ConversationSummaryRequest):
 # Smart Reply Endpoint
 @ai_router.post("/suggest-reply")
 async def suggest_smart_reply(request: SmartReplyRequest):
-    """
-    Suggest a smart reply based on context.
-    """
+    """Suggest a smart reply based on context."""
     claude = get_claude_client()
 
     if not claude.is_enabled:
