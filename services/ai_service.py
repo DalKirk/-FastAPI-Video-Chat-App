@@ -200,9 +200,9 @@ class AIService:
                     formatted_lines.append(f"## {stripped}")
                 else:
                     formatted_lines.append(stripped)
-            # Already a list item (-, *, •)
-            elif stripped.startswith(('-', '*', '•')):
-                clean_content = stripped.lstrip('-*• ').strip()
+            # Already a list item (-, *, bullet)
+            elif stripped.startswith(('-', '*')):
+                clean_content = stripped.lstrip('-* ').strip()
                 formatted_lines.append(f"- {clean_content}")
             else:
                 # Regular paragraph
