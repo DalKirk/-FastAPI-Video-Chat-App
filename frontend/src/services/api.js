@@ -32,7 +32,7 @@ export const sendChatMessage = async (message, conversationHistory = []) => {
   };
 
   console.log('?? Sending to backend:', {
-    url: `${API_BASE_URL}/api/ai-proxy`,
+    url: `${API_BASE_URL}/api/v1/chat`,
     message: payload.message.substring(0, 50) + '...',
     historyLength: payload.conversation_history.length
   });
@@ -110,7 +110,7 @@ export const sendStreamingChatMessage = async (
         messages: conversationHistory.map(msg => ({
           role: msg.role,
           content: msg.content,
-        })),
+        }),
         max_tokens: 2048,
         temperature: 0.7,
       }),
