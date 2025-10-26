@@ -4,7 +4,8 @@ Add these to your main.py to enable AI features
 """
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
-from typing import List, Optional
+from pydantic import model_validator
+from typing import List, Optional, Any, Dict
 from utils.claude_client import get_claude_client
 import logging
 
@@ -15,10 +16,39 @@ ai_router = APIRouter(prefix="/ai", tags=["AI Features"])
 
 
 class AIRequest(BaseModel):
-    """Request for AI generation"""
-    prompt: str
+    """Request for AI generation. Tolerant to multiple payload shapes."""
+    prompt: Optional[str] = None
     max_tokens: int = 1000
     temperature: float = 0.7
+    # Accept legacy/alternate field names
+    message: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def coerce_payload(cls, values: Any) -> Any:
+        """Coerce different incoming shapes into a model with a prompt.
+        - Raw string body -> {"prompt": "...">
+        - {"message": "..."} -> {"prompt": "...">
+        - Also fallback to keys like "input" or "query" if present
+        """
+        if values is None:
+            return values
+        if isinstance(values, str):
+            return {"prompt": values}
+        if isinstance(values, dict):
+            if not values.get("prompt"):
+                # Map common aliases to prompt
+                for key in ("message", "input", "query", "text"):
+                    if key in values and isinstance(values[key], str):
+                        values["prompt"] = values[key]
+                        break
+        return values
+
+    @model_validator(mode="after")
+    def ensure_prompt(self) -> "AIRequest":
+        if not self.prompt or not isinstance(self.prompt, str) or not self.prompt.strip():
+            raise ValueError("'prompt' is required (or provide 'message'/'input'/'query' as string)")
+        return self
 
 
 class ContentModerationRequest(BaseModel):
@@ -43,13 +73,11 @@ async def generate_ai_response(request: AIRequest):
     """
     Generate AI response using Claude.
     
-    Example:
-        POST /ai/generate
-        {
-            "prompt": "Write a fun icebreaker for a chat room",
-            "max_tokens": 100,
-            "temperature": 0.8
-        }
+    Accepts:
+    - {"prompt": "..."]
+    - {"message": "..."]
+    - Raw string body "....
+    - Plus optional: max_tokens, temperature
     """
     claude = get_claude_client()
     
@@ -67,7 +95,7 @@ async def generate_ai_response(request: AIRequest):
         )
         model_info = claude.get_model_info()
         
-        # ?? DIAGNOSTIC LOGGING - Before Sending to Frontend
+        # Diagnostic logging
         logger.info('=== BEFORE SENDING TO FRONTEND ===')
         logger.info(f'Response length: {len(response)}')
         logger.info(f'Has spaces: {" " in response}')
