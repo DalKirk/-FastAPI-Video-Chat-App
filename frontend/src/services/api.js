@@ -2,7 +2,8 @@
  * API service for communicating with the FastAPI backend
  */
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+// Use Railway URL directly if REACT_APP_API_URL is not set
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://fastapi-video-chat-app-production.up.railway.app';
 
 /**
  * Send a chat message to the AI backend
@@ -11,6 +12,9 @@ const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
  * @returns {Promise<Object>} - The AI response
  */
 export const sendChatMessage = async (message, conversationHistory = []) => {
+  console.log('?? Sending message to:', API_BASE_URL);
+  console.log('?? Message:', message);
+  
   try {
     const response = await fetch(`${API_BASE_URL}/api/v1/chat`, {
       method: 'POST',
@@ -27,15 +31,19 @@ export const sendChatMessage = async (message, conversationHistory = []) => {
       }),
     });
 
+    console.log('?? Response status:', response.status);
+
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
+      console.error('? Error response:', errorData);
       throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
     }
 
     const data = await response.json();
+    console.log('? Success! Response:', data);
     return data;
   } catch (error) {
-    console.error('Error sending chat message:', error);
+    console.error('? Error sending chat message:', error);
     throw error;
   }
 };
