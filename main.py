@@ -22,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 # Claude AI endpoints
-from utils.ai_endpoints import ai_router
+# from utils.ai_endpoints import ai_router
 from utils.streaming_ai_endpoints import streaming_ai_router
 from api.routes.chat import router as chat_router  # Add this line
 
@@ -254,9 +254,9 @@ async def global_exception_handler(request: Request, exc: Exception):
   )
 
 # Include AI endpoints router
-app.include_router(ai_router)
-app.include_router(streaming_ai_router)
-app.include_router(chat_router)  # Add this line
+# app.include_router(ai_router)  # REMOVED: Old /ai/generate endpoint - frontend uses /api/v1/chat instead
+app.include_router(streaming_ai_router)  # Keep for future streaming feature
+app.include_router(chat_router)  # Main chat endpoint used by frontend
 
 manager = ConnectionManager()
 
