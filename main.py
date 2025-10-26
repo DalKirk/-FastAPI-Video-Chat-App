@@ -21,8 +21,8 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
-# Claude AI endpoints
-from utils.ai_endpoints import ai_router
+# Claude AI endpoints - REMOVED legacy ai_router to stop 422 errors
+# from utils.ai_endpoints import ai_router  # REMOVED - causing 422 errors
 from utils.streaming_ai_endpoints import streaming_ai_router
 from api.routes.chat import router as chat_router  # NEW: Add this import
 
@@ -237,7 +237,7 @@ async def global_exception_handler(request: Request, exc: Exception):
   )
 
 # Include AI endpoints router
-app.include_router(ai_router)
+# app.include_router(ai_router)
 app.include_router(streaming_ai_router)
 app.include_router(chat_router)  # NEW: Add this line
 
