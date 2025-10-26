@@ -20,6 +20,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Requ
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator, ConfigDict
+from middleware.rate_limit import RateLimitMiddleware, RateLimitConfig
 
 # Claude AI endpoints
 # from utils.ai_endpoints import ai_router
@@ -214,15 +215,22 @@ allowed_origins = [
   "https://video-chat-frontend-ruby.vercel.app",
 ]
 
-# Log CORS configuration on startup
+# Log CORS configuration on startup and configure dynamically
 if os.getenv("ENVIRONMENT") != "production":
   logger.info("⚠️  Development mode: Allowing all origins for CORS")
+  # In dev, allow any origin using regex (compatible with credentials=True)
+  cors_allow_origins = []
+  cors_allow_origin_regex = r".*"
 else:
-  logger.info("✅ Production mode: Restricted CORS origins")
+  logger.info("✅ Production mode: Restricted CORS origins with Vercel wildcard")
+  cors_allow_origins = allowed_origins
+  # Allow any vercel.app subdomain
+  cors_allow_origin_regex = r"https://.*\.vercel\.app"
 
 app.add_middleware(
   CORSMiddleware,
-  allow_origins=allowed_origins,
+  allow_origins=cors_allow_origins,
+  allow_origin_regex=cors_allow_origin_regex,
   allow_credentials=True,
   allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allow_headers=["*"],
@@ -628,9 +636,9 @@ async def create_video_upload(room_id: str, upload_data: VideoUploadCreate, requ
       detail="Bunny.net Stream not configured"
     )
 
-  title = (upload_data.title or "").trim() || "Untitled";
+  title = (upload_data.title or "").strip() or "Untitled"
 
-  try {
+  try:
     import requests
     
     headers = {
@@ -696,13 +704,12 @@ async def create_video_upload(room_id: str, upload_data: VideoUploadCreate, requ
       "timestamp": datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z"
     }
     
-    try {
+    try:
       await manager.broadcast_to_room(json.dumps(upload_message), room_id)
-    } catch (Exception e) {
+    except Exception as e:
       logger.error(f"Failed to broadcast: {e}")
-    }
 
-    // ✅ Returns proxy upload URL
+    # ✅ Returns proxy upload URL
     return {
       "id": video_guid,
       "upload_url": upload_url,
@@ -710,10 +717,9 @@ async def create_video_upload(room_id: str, upload_data: VideoUploadCreate, requ
       "title": title
     }
 
-  } catch (Exception e) {
+  except Exception as e:
     logger.error(f"Video upload creation failed: {e}", exc_info=True)
-    throw HTTPException(status_code=500, detail=str(e))
-  }
+    raise HTTPException(status_code=500, detail=str(e))
 
 @app.put('/upload-proxy/{upload_id}')
 async def upload_proxy(upload_id: str, request: Request):
@@ -750,7 +756,7 @@ async def upload_proxy(upload_id: str, request: Request):
   video_assets[upload_id]['status'] = 'processing'
 
   # Broadcast processing message
-  try {
+  try:
     processing_message = {
       'type': 'video_processing',
       'video_id': upload_id,
@@ -759,9 +765,8 @@ async def upload_proxy(upload_id: str, request: Request):
       'timestamp': datetime.now(timezone.utc).isoformat() + 'Z'
     }
     await manager.broadcast_to_room(json.dumps(processing_message), video_assets[upload_id]['room_id'])
-  } catch (Exception) {
+  except Exception:
     logger.exception('Failed to broadcast processing message')
-  }
 
   return { 'status': 'uploaded', 'upload_id': upload_id }
 
@@ -1006,29 +1011,29 @@ function uploadVideo(){document.getElementById('videoUploadModal').style.display
 function closeVideoUploadModal(){document.getElementById('videoUploadModal').style.display='none'}
 async function createLiveStream(){
 if(!currentRoom){alert('Join a room first');return}
-const title=document.getElementById('streamTitle').value.trim();
+const title=(document.getElementById('streamTitle').value||'').trim();
 if(!title){alert('Enter stream title');return}
-try{
+try {
 const response=await fetch(`/rooms/${currentRoom.id}/live-stream`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title})});
 if(response.ok){
 const stream=await response.json();
 document.getElementById('streamKey').textContent=stream.stream_key;
 document.getElementById('streamInfo').style.display='block'}
 else{alert('Failed to create live stream')}
-}catch(error){alert('Error: '+error.message)}}
+} catch(error){alert('Error: '+error.message)} }
 async function createVideoUpload(){
 if(!currentRoom){alert('Join a room first');return}
-const title=document.getElementById('videoTitle').value.trim();
-const description=document.getElementById('videoDescription').value.trim();
+const title=(document.getElementById('videoTitle').value||'').trim();
+const description=(document.getElementById('videoDescription').value||'').trim();
 if(!title){alert('Enter video title');return}
-try{
+try {
 const response=await fetch(`/rooms/${currentRoom.id}/video-upload`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,description})});
 if(response.ok){
 const upload=await response.json();
 window.uploadUrl=upload.upload_url;
 document.getElementById('uploadArea').style.display='block'}
 else{alert('Failed to create upload URL')}
-}catch(error){alert('Error: '+error.message)}}
+} catch(error){alert('Error: '+error.message)} }
 async function uploadVideoFile(){
 const fileInput=document.getElementById('videoFile');
 const file=fileInput.files[0];
@@ -1036,20 +1041,20 @@ if(!file){alert('Select a video file');return}
 if(!window.uploadUrl){alert('Create upload URL first');return}
 const progressDiv=document.getElementById('uploadProgress');
 progressDiv.innerHTML='Uploading...';
-try{
-const response=await fetch(window.uploadUrl,{method:'PUT',body:file,headers:{'Content-Type':file.type}});
+try {
+const response=await fetch(window.uploadUrl,{method:'PUT',body:file,headers:{'Content-Type':file.type||'application/octet-stream'}});
 if(response.ok){
 progressDiv.innerHTML='Upload complete! Processing video...';
 closeVideoUploadModal()}
 else{progressDiv.innerHTML='Upload failed'}
-}catch(error){progressDiv.innerHTML='Upload error: '+error.message}}
+} catch(error){progressDiv.innerHTML='Upload error: '+error.message} }
 function displayMessage(data){
 const chatArea=document.getElementById('chatArea');
 const messageDiv=document.createElement('div');
 if(data.type==='message'){
 messageDiv.className='message';
-const time=new Date(data.timestamp.endsWith('Z')?data.timestamp:data.timestamp+'Z').toLocaleTimeString();
-messageDiv.innerHTML='<strong>'+data.username+'</strong> <small>('+time+')</small><br>'+data.content}
+const time=new Date((data.timestamp||'').endsWith('Z')?data.timestamp:data.timestamp+'Z').toLocaleTimeString();
+messageDiv.innerHTML='<strong>'+data.username+'</strong> <small>(' + time + ')</small><br>'+data.content}
 else if(data.type==='live_stream_created'){
 messageDiv.className='message live-stream-message';
 messageDiv.innerHTML='<strong>🔴 Live Stream Started</strong><br>'+data.message+'<br><video controls class="video-player" preload="metadata"><source src="'+data.pull_url+'" type="application/x-mpegURL"></video>'}
@@ -1063,34 +1068,34 @@ const videos = messageDiv.querySelectorAll('video');
 videos.forEach(video => {
   const source = video.querySelector('source');
   if (source && source.type === 'application/x-mpegURL') {
-  if (Hls.isSupported()) {
-    const hls = new Hls();
-    hls.loadSource(source.src);
-    hls.attachMedia(video);
-  } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-    video.src = source.src;
-  }
+    if (Hls.isSupported()) {
+      const hls = new Hls();
+      hls.loadSource(source.src);
+      hls.attachMedia(video);
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = source.src;
+    }
   }
 });
 chatArea.scrollTop=chatArea.scrollHeight}
 async function createUser(){
-const username=document.getElementById('username').value.trim();
+const username=(document.getElementById('username').value||'').trim();
 if(!username){alert('Enter username');return}
-try{
+try {
 const response=await fetch('/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username})});
 if(response.ok){currentUser=await response.json();showStatus('User created: '+currentUser.username)}
 else{alert('Failed to create user')}
-}catch(error){alert('Error: '+error.message)}}
+} catch(error){alert('Error: '+error.message)} }
 async function createRoom(){
-const roomName=document.getElementById('roomName').value.trim();
+const roomName=(document.getElementById('roomName').value||'').trim();
 if(!roomName){alert('Enter room name');return}
-try{
+try {
 const response=await fetch('/rooms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:roomName})});
 if(response.ok){showStatus('Room created');loadRooms()}
 else{alert('Failed to create room')}
-}catch(error){alert('Error: '+error.message)}}
+} catch(error){alert('Error: '+error.message)} }
 async function loadRooms(){
-try{
+try {
 const response=await fetch('/rooms');
 const rooms=await response.json();
 const roomsList=document.getElementById('roomsList');
@@ -1100,17 +1105,17 @@ const roomDiv=document.createElement('div');
 roomDiv.className='room-item';
 roomDiv.innerHTML='<span>'+room.name+'</span><button onclick="joinRoom(\''+room.id+'\',\''+room.name+'\')">Join</button>';
 roomsList.appendChild(roomDiv)})
-}catch(error){alert('Error loading rooms')}}
+} catch(error){alert('Error loading rooms')} }
 async function joinRoom(roomId,roomName){
   if(!currentUser){alert('Create user first');return}
   currentRoom={id:roomId,name:roomName};
-  try{
+  try {
     await fetch('/rooms/'+roomId+'/join',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({user_id:currentUser.id})
     });
-  }catch(error){
+  } catch(error){
     console.error('Error joining room:',error);
   }
 
@@ -1129,17 +1134,17 @@ async function joinRoom(roomId,roomName){
   ws.onerror=function(){showStatus('Connection error')}
 }
 async function loadMessages(){
-try{
+try {
 const response=await fetch('/rooms/'+currentRoom.id+'/messages');
 const messages=await response.json();
 const chatArea=document.getElementById('chatArea');
 chatArea.innerHTML='';
 messages.forEach(message=>{displayMessage({type:'message',username:message.username,content:message.content,timestamp:message.timestamp})})
-}catch(error){console.error('Error loading messages')}}
+} catch(error){console.error('Error loading messages')} }
 function sendMessage(){
 const messageInput=document.getElementById('messageInput');
-const content=messageInput.value.trim();
-if(!content||!ws)return;
+const content=(messageInput.value||'').trim();
+if(!content || !ws) return;
 ws.send(JSON.stringify({content}));messageInput.value=''}
 function showStatus(message){
 const status=document.getElementById('status');
@@ -1152,6 +1157,4 @@ window.onload=loadRooms;
 def get_chat_page():
   """Serve the optimized chat interface"""
   return CHAT_HTML
-
-from middleware.rate_limit import RateLimitMiddleware, RateLimitConfig
 
