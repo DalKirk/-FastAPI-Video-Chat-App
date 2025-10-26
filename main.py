@@ -21,10 +21,9 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
-# Claude AI endpoints - REMOVED legacy ai_router to stop 422 errors
-# from utils.ai_endpoints import ai_router  # REMOVED - causing 422 errors
+# Claude AI endpoints
+from utils.ai_endpoints import ai_router
 from utils.streaming_ai_endpoints import streaming_ai_router
-from api.routes.chat import router as chat_router  # NEW: Add this import
 
 # Load the .env file
 load_dotenv()
@@ -207,9 +206,10 @@ allowed_origins = [
   "http://localhost:3001",
   "https://localhost:3000",
   "https://next-js-14-front-end-for-chat-plast.vercel.app",
-  "https://next-js-14-front-end-for-chat-plast-kappa.vercel.app",  # NEW URL
+  "https://next-js-14-front-end-for-chat-plast-kappa.vercel.app",
   "https://video-chat-frontend-ruby.vercel.app",
   "https://next-js-14-front-end-for-chat-plaster-repository-7vb273qqo.vercel.app",
+  "https://next-js-14-front-end-for-chat-plaster-repository-g2su9nnvp.vercel.app",  # NEW: Current preview deployment
 ]
 
 # Allow all Vercel preview deployments in development
@@ -237,18 +237,8 @@ async def global_exception_handler(request: Request, exc: Exception):
   )
 
 # Include AI endpoints router
-# app.include_router(ai_router)
+app.include_router(ai_router)
 app.include_router(streaming_ai_router)
-app.include_router(chat_router)  # NEW: Add this line
-
-# Legacy redirect for health check monitors
-from fastapi.responses import RedirectResponse as RResp
-
-@app.get("/ai/health")
-async def legacy_ai_health():
-    """Redirect old /ai/health to new endpoint"""
-    return RResp(url="/api/v1/chat/health", status_code=301)
-
 
 manager = ConnectionManager()
 
