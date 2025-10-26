@@ -32,13 +32,13 @@ export const sendChatMessage = async (message, conversationHistory = []) => {
   };
 
   console.log('?? Sending to backend:', {
-    url: `${API_BASE_URL}/api/v1/chat`,
+    url: `${API_BASE_URL}/api/ai-proxy`,
     message: payload.message.substring(0, 50) + '...',
     historyLength: payload.conversation_history.length
   });
 
   try {
-    const response = await fetch(`${API_BASE_URL}/api/v1/chat`, {
+    const response = await fetch(`${API_BASE_URL}/api/ai-proxy`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -74,7 +74,7 @@ export const sendChatMessage = async (message, conversationHistory = []) => {
  */
 export const checkChatHealth = async () => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/v1/chat/health`);
+    const response = await fetch(`${API_BASE_URL}/ai/health`);
     
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
