@@ -1,7 +1,8 @@
 from fastapi import APIRouter, HTTPException, Depends, Request
-from app.models.chat_models import ChatRequest, ChatResponse
+from app.models.chat_models import ChatRequest, ChatResponse, Message as ChatMsgModel
 from services.ai_service import AIService
 import logging
+from typing import List, Dict, Any
 
 logger = logging.getLogger(__name__)
 
@@ -27,23 +28,65 @@ async def chat_endpoint(
     """
     Main chat endpoint that provides context-aware, formatted AI responses.
 
-    Accepts arbitrary JSON, validates with Pydantic, and returns 422 on bad input
-    instead of raising a 500 error.
+    Accepts flexible payloads. Preferred shape:
+    {
+      "message": "...",
+      "conversation_history": [{"username":"User","content":"...","timestamp":"..."}]
+    }
+
+    Also tolerates:
+      - { "prompt": "..." }
+      - { "text": "..." }
+      - { "messages": [{"role":"user","content":"..."}, ...] }
     """
     try:
-        # Read raw JSON and validate explicitly to provide clean 422 on errors
         try:
-            body = await request.json()
+            body: Dict[str, Any] = await request.json()
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid JSON body")
 
-        # Ensure required field `message` exists before validation for clearer error
-        if not isinstance(body, dict) or "message" not in body or not str(body.get("message", "")).strip():
+        # Infer message from alternate fields if missing
+        message: str = (body.get("message") or body.get("prompt") or body.get("text") or "").strip()
+
+        # If still missing, try to derive from OpenAI-like messages array
+        if not message and isinstance(body.get("messages"), list):
+            for m in reversed(body["messages"]):
+                if isinstance(m, dict) and m.get("role") == "user" and str(m.get("content", "")).strip():
+                    message = str(m.get("content")).strip()
+                    break
+
+        # Build conversation history from either provided conversation_history or messages
+        conv_history: List[Dict[str, Any]] = []
+        if isinstance(body.get("conversation_history"), list):
+            conv_history = body["conversation_history"]
+        elif isinstance(body.get("messages"), list):
+            # Map OpenAI-like messages to backend shape
+            for m in body["messages"]:
+                if not isinstance(m, dict) or "content" not in m:
+                    continue
+                role = m.get("role", "assistant")
+                conv_history.append({
+                    "username": "User" if role == "user" else "Assistant",
+                    "content": m.get("content", ""),
+                    "timestamp": m.get("timestamp") or m.get("time") or None
+                })
+
+        # Validate required message
+        if not message:
+            logger.warning("/api/v1/chat missing 'message'. Body keys: %s", list(body.keys()))
             raise HTTPException(status_code=422, detail="Field 'message' is required")
 
-        chat_req = ChatRequest.model_validate(body)
+        # Compose normalized payload for model validation
+        normalized: Dict[str, Any] = {
+            "message": message,
+            "conversation_history": conv_history,
+            "user_id": body.get("user_id"),
+            "room_id": body.get("room_id"),
+        }
 
-        logger.info(f"Chat request received: {chat_req.message[:50]}...")
+        chat_req = ChatRequest.model_validate(normalized)
+
+        logger.info("Chat request received: %s...", chat_req.message[:80])
 
         # Generate response using AI service
         response = await ai_service.generate_response(
@@ -51,15 +94,9 @@ async def chat_endpoint(
             history=chat_req.conversation_history
         )
 
-        logger.info(
-            "Response generated: format=%s, success=%s",
-            response.get('format_type'), response.get('success')
-        )
-
         return ChatResponse(**response)
 
     except HTTPException:
-        # Re-raise expected HTTP errors (422/400)
         raise
     except Exception as e:
         logger.error(f"Error in chat endpoint: {e}", exc_info=True)
@@ -71,7 +108,6 @@ async def chat_endpoint(
 
 @router.get("/chat/health")
 async def chat_health_check():
-    """Health check endpoint for the chat service."""
     try:
         ai_service = get_ai_service()
         return {
