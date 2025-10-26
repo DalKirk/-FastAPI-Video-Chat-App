@@ -153,22 +153,22 @@ class AIService:
         This handles cases where AI returns: "text• bullet1• bullet2• bullet3"
         """
         # Fix 1: Split bullets that appear after sentence endings
-        # "text.• bullet" ? "text.\n• bullet"
-        content = re.sub(r'([.!?:])([•\-*])\s*', r'\1\n\2 ', content)
+        # "text.• bullet" -> "text.\n• bullet"
+        content = re.sub(r'([.!?:])(\[\u2022\-\*\])?([\u2022\-\*])\s*', r'\1\n\3 ', content)
         
         # Fix 2: Split bullets that appear inline without sentence endings
-        # "text• bullet• another" ? "text\n• bullet\n• another"
-        content = re.sub(r'([^.!?\n])([•\-*])\s+([A-Z])', r'\1\n\2 \3', content)
+        # "text• bullet• another" -> "text\n• bullet\n• another"
+        content = re.sub(r'([^.!?\n])([\u2022\-\*])\s+([A-Z])', r'\1\n\2 \3', content)
         
         # Fix 3: Ensure bullets at start of content get proper spacing
-        content = re.sub(r'^([•\-*])\s*', r'\1 ', content, flags=re.MULTILINE)
+        content = re.sub(r'^([\u2022\-\*])\s*', r'\1 ', content, flags=re.MULTILINE)
         
         # Fix 4: Split numbered lists that are inline
-        # "1. text2. text" ? "1. text\n2. text"
+        # "1. text2. text" -> "1. text\n2. text"
         content = re.sub(r'(\d+\.)\s*([A-Z][^.]*\.)(\d+\.)', r'\1 \2\n\3', content)
         
         # Fix 5: Split word-numbered items (First, Second, etc.)
-        # "First, textSecond, text" ? "First, text\nSecond, text"
+        # "First, textSecond, text" -> "First, text\nSecond, text"
         content = re.sub(
             r'(First|Second|Third|Fourth|Fifth|Sixth|Seventh|Eighth|Ninth|Tenth)[:,]\s*([^.!?]*[.!?])\s*(First|Second|Third|Fourth|Fifth|Sixth|Seventh|Eighth|Ninth|Tenth)', 
             r'\1: \2\n\3',
@@ -177,8 +177,8 @@ class AIService:
         )
         
         # Fix 6: Handle special case where bullets have no space after them
-        # "•Text" ? "• Text"
-        content = re.sub(r'([•\-*])([A-Z])', r'\1 \2', content)
+        # "•Text" -> "• Text"
+        content = re.sub(r'([\u2022\-\*])([A-Z])', r'\1 \2', content)
         
         return content.strip()
 
@@ -218,15 +218,15 @@ class AIService:
                 formatted_lines.append(line)
                 continue
 
-            # Convert bullet points: "• text", "- text", "* text" ? "- text"
-            bullet_match = re.match(r'^[•\-*]\s*(.+)$', stripped)
+            # Convert bullet points: "• text", "- text", "* text" -> "- text"
+            bullet_match = re.match(r'^[\u2022\-\*]\s*(.+)$', stripped)
             if bullet_match:
                 content_part = bullet_match.group(1).strip()
                 formatted_lines.append(f"- {content_part}")
                 prev_was_bullet = True
                 continue
 
-            # Convert numbered patterns: "1. text", "2) text" ? "- text"
+            # Convert numbered patterns: "1. text", "2) text" -> "- text"
             numbered_match = re.match(r'^(\d+[\.\)])\s*(.+)$', stripped)
             if numbered_match:
                 content_part = numbered_match.group(2).strip()
@@ -234,7 +234,7 @@ class AIService:
                 prev_was_bullet = True
                 continue
 
-            # Convert word numbers: "First: text" ? "- **First**: text"
+            # Convert word numbers: "First: text" -> "- **First**: text"
             word_match = re.match(
                 r'^(First|Second|Third|Fourth|Fifth|Sixth|Seventh|Eighth|Ninth|Tenth)[,:]?\s*(.+)$',
                 stripped,
