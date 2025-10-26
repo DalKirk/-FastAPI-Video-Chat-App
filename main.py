@@ -200,19 +200,21 @@ app = FastAPI(
   lifespan=lifespan
 )
 
-# CORS middleware - Enhanced with wildcard support for Vercel preview deployments
+# CORS middleware - Production URLs only (stable, won't change)
 allowed_origins = [
+  # Local development
   "http://localhost:3000",
   "http://localhost:3001",
   "https://localhost:3000",
+  
+  # Production Vercel deployments (stable URLs only - no preview deployments)
   "https://next-js-14-front-end-for-chat-plast.vercel.app",
   "https://next-js-14-front-end-for-chat-plast-kappa.vercel.app",
   "https://video-chat-frontend-ruby.vercel.app",
-  "https://next-js-14-front-end-for-chat-plaster-repository-7vb273qqo.vercel.app",
-  "https://next-js-14-front-end-for-chat-plaster-repository-g2su9nnvp.vercel.app",  # NEW: Current preview deployment
 ]
 
-# Allow all Vercel preview deployments in development
+# Log CORS configuration on startup
+
 if os.getenv("ENVIRONMENT") != "production":
   logger.info("⚠️  Development mode: Allowing all origins for CORS")
   # allowed_origins.append("*")  # DISABLED: Conflicts with credentials
