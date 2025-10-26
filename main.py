@@ -1109,16 +1109,10 @@ roomsList.appendChild(roomDiv)})
 async function joinRoom(roomId,roomName){
   if(!currentUser){alert('Create user first');return}
   currentRoom={id:roomId,name:roomName};
-  try {
-    await fetch('/rooms/'+roomId+'/join',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({user_id:currentUser.id})
-    });
-  } catch(error){
-    console.error('Error joining room:',error);
-  }
-
+  
+  // REMOVED: Unnecessary HTTP call to /rooms/join - WebSocket handles joining
+  // The WebSocket connection automatically adds user to room (see websocket_endpoint in backend)
+  
   const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = wsProto + '//' + window.location.host + '/ws/' + encodeURIComponent(roomId) + '/' + encodeURIComponent(currentUser.id);
   ws=new WebSocket(wsUrl);
@@ -1157,4 +1151,11 @@ window.onload=loadRooms;
 def get_chat_page():
   """Serve the optimized chat interface"""
   return CHAT_HTML
+
+# Add WebSocket demo page endpoint
+@app.get("/websocket-demo", response_class=HTMLResponse)
+def get_websocket_demo():
+  """Serve the WebSocket demonstration page"""
+  with open("websocket_demo.html", "r", encoding="utf-8") as f:
+    return f.read()
 

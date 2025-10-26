@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>?? FastAPI WebSocket Demo - Real-Time Chat</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .demo-container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+            width: 100%;
+            max-width: 1200px;
+            height: 90vh;
+            display: grid;
+            grid-template-columns: 300px 1fr;
+        }
+
+        .sidebar {
+            background: #2c3e50;
+            color: white;
+            padding: 30px 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .main-content {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+
+        .header {
+            background: #34495e;
+            color: white;
+            padding: 20px 30px;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .status {
+            padding: 15px 30px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #ddd;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #dc3545;
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.connected {
+            background: #28a745;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        .chat-messages {
+            flex: 1;
+            padding: 20px 30px;
+            overflow-y: auto;
+            background: #f8f9fa;
+        }
+
+        .message {
+            margin-bottom: 15px;
+            padding: 12px 16px;
+            border-radius: 12px;
+            max-width: 80%;
+            word-wrap: break-word;
+        }
+
+        .message.user {
+            background: #007bff;
+            color: white;
+            margin-left: auto;
+        }
+
+        .message.other {
+            background: white;
+            color: #333;
+            border: 1px solid #e9ecef;
+        }
+
+        .message.system {
+            background: #fff3cd;
+            color: #856404;
+            margin: 0 auto;
+            text-align: center;
+            font-style: italic;
+            max-width: 60%;
+        }
+
+        .message-header {
+            font-size: 0.8em;
+            opacity: 0.7;
+            margin-bottom: 4px;
+        }
+
+        .input-area {
+            padding: 20px 30px;
+            background: white;
+            border-top: 1px solid #ddd;
+            display: flex;
+            gap: 10px;
+        }
+
+        .input-area input {
+            flex: 1;
+            padding: 12px 16px;
+            border: 1px solid #ddd;
+            border-radius: 25px;
+            font-size: 16px;
+            outline: none;
+        }
+
+        .input-area input:focus {
+            border-color: #007bff;
+            box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+        }
+
+        .input-area button {
+            padding: 12px 24px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+
+        .input-area button:hover {
+            background: #0056b3;
+        }
+
+        .input-area button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .form-group label {
+            font-weight: 600;
+            font-size: 0.9em;
+            color: #ecf0f1;
+        }
+
+        .form-group input {
+            padding: 10px 12px;
+            border: 1px solid #34495e;
+            border-radius: 8px;
+            background: #34495e;
+            color: white;
+            font-size: 14px;
+        }
+
+        .form-group input::placeholder {
+            color: #95a5a6;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: #3498db;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #2980b9;
+        }
+
+        .btn-success {
+            background: #27ae60;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #219a52;
+        }
+
+        .btn:disabled {
+            background: #7f8c8d;
+            cursor: not-allowed;
+        }
+
+        .rooms-list {
+            background: #34495e;
+            border-radius: 8px;
+            padding: 15px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .room-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid #2c3e50;
+        }
+
+        .room-item:last-child {
+            border-bottom: none;
+        }
+
+        .room-name {
+            font-size: 0.9em;
+            color: #ecf0f1;
+        }
+
+        .join-btn {
+            padding: 4px 12px;
+            background: #27ae60;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8em;
+        }
+
+        .join-btn:hover {
+            background: #219a52;
+        }
+
+        .ws-info {
+            background: #34495e;
+            border-radius: 8px;
+            padding: 15px;
+            font-size: 0.85em;
+            line-height: 1.4;
+        }
+
+        .ws-info h4 {
+            margin-bottom: 10px;
+            color: #3498db;
+        }
+
+        .ws-info p {
+            margin-bottom: 8px;
+            color: #bdc3c7;
+        }
+
+        .endpoint-url {
+            background: #2c3e50;
+            padding: 8px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            color: #e74c3c;
+            word-break: break-all;
+        }
+
+        @media (max-width: 768px) {
+            .demo-container {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto 1fr;
+                height: 100vh;
+            }
+
+            .sidebar {
+                padding: 20px;
+            }
+        }
+
+        .title {
+            font-size: 1.3em;
+            font-weight: bold;
+            margin-bottom: 20px;
+            color: #ecf0f1;
+            text-align: center;
+        }
+
+        .error {
+            color: #e74c3c;
+            font-size: 0.9em;
+            margin-top: 10px;
+            padding: 10px;
+            background: rgba(231, 76, 60, 0.1);
+            border-radius: 4px;
+        }
+
+        .success {
+            color: #27ae60;
+            font-size: 0.9em;
+            margin-top: 10px;
+            padding: 10px;
+            background: rgba(39, 174, 96, 0.1);
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="demo-container">
+        <div class="sidebar">
+            <div class="title">?? WebSocket Demo</div>
+            
+            <div class="form-group">
+                <label>Username</label>
+                <input type="text" id="username" placeholder="Enter your username" maxlength="20">
+            </div>
+            
+            <button class="btn btn-primary" id="createUserBtn" onclick="createUser()">
+                Create User
+            </button>
+            
+            <div class="form-group">
+                <label>Room Name</label>
+                <input type="text" id="roomName" placeholder="Enter room name" maxlength="30">
+            </div>
+            
+            <button class="btn btn-success" id="createRoomBtn" onclick="createRoom()">
+                Create Room
+            </button>
+            
+            <div id="roomsList" class="rooms-list">
+                <div style="text-align: center; color: #95a5a6; font-size: 0.9em;">
+                    Loading rooms...
+                </div>
+            </div>
+            
+            <div class="ws-info">
+                <h4>WebSocket Info</h4>
+                <p><strong>Endpoint:</strong></p>
+                <div class="endpoint-url" id="wsEndpoint">
+                    /ws/{room_id}/{user_id}
+                </div>
+                <p style="margin-top: 10px;"><strong>Status:</strong> <span id="wsStatus">Disconnected</span></p>
+            </div>
+            
+            <div id="errorMsg" class="error" style="display: none;"></div>
+            <div id="successMsg" class="success" style="display: none;"></div>
+        </div>
+        
+        <div class="main-content">
+            <div class="header">
+                <h1 id="chatTitle">FastAPI WebSocket Real-Time Chat</h1>
+                <p id="roomInfo">Select a room to start chatting</p>
+            </div>
+            
+            <div class="status">
+                <div class="status-dot" id="statusDot"></div>
+                <span id="statusText">Disconnected - Create user and join room</span>
+            </div>
+            
+            <div class="chat-messages" id="chatMessages">
+                <div class="message system">
+                    <div>Welcome to the FastAPI WebSocket Demo!</div>
+                    <div style="margin-top: 10px; font-size: 0.9em;">
+                        1. Create a username<br>
+                        2. Create or join a room<br>
+                        3. Start chatting in real-time!
+                    </div>
+                </div>
+            </div>
+            
+            <div class="input-area">
+                <input 
+                    type="text" 
+                    id="messageInput" 
+                    placeholder="Type your message here..." 
+                    maxlength="500"
+                    disabled
+                    onkeypress="if(event.key==='Enter') sendMessage()"
+                >
+                <button id="sendBtn" onclick="sendMessage()" disabled>Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let ws = null;
+        let currentUser = null;
+        let currentRoom = null;
+        
+        // API Base URL - adjust this to your deployment URL
+        const API_BASE_URL = window.location.origin;
+        
+        // WebSocket connection status
+        function updateStatus(text, connected = false) {
+            const statusText = document.getElementById('statusText');
+            const statusDot = document.getElementById('statusDot');
+            const wsStatus = document.getElementById('wsStatus');
+            
+            statusText.textContent = text;
+            wsStatus.textContent = connected ? 'Connected' : 'Disconnected';
+            
+            if (connected) {
+                statusDot.classList.add('connected');
+            } else {
+                statusDot.classList.remove('connected');
+            }
+        }
+        
+        // Show error message
+        function showError(message) {
+            const errorMsg = document.getElementById('errorMsg');
+            const successMsg = document.getElementById('successMsg');
+            
+            errorMsg.textContent = message;
+            errorMsg.style.display = 'block';
+            successMsg.style.display = 'none';
+            
+            setTimeout(() => {
+                errorMsg.style.display = 'none';
+            }, 5000);
+        }
+        
+        // Show success message
+        function showSuccess(message) {
+            const successMsg = document.getElementById('successMsg');
+            const errorMsg = document.getElementById('errorMsg');
+            
+            successMsg.textContent = message;
+            successMsg.style.display = 'block';
+            errorMsg.style.display = 'none';
+            
+            setTimeout(() => {
+                successMsg.style.display = 'none';
+            }, 3000);
+        }
+        
+        // Create user
+        async function createUser() {
+            const username = document.getElementById('username').value.trim();
+            if (!username) {
+                showError('Please enter a username');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/users`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ username })
+                });
+                
+                if (response.ok) {
+                    currentUser = await response.json();
+                    showSuccess(`User created: ${currentUser.username}`);
+                    document.getElementById('createUserBtn').textContent = '? User Created';
+                    document.getElementById('createUserBtn').disabled = true;
+                    updateStatus(`Logged in as ${currentUser.username}`);
+                } else {
+                    const error = await response.json();
+                    showError(error.detail || 'Failed to create user');
+                }
+            } catch (error) {
+                showError('Error: ' + error.message);
+            }
+        }
+        
+        // Create room
+        async function createRoom() {
+            const roomName = document.getElementById('roomName').value.trim();
+            if (!roomName) {
+                showError('Please enter a room name');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/rooms`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ name: roomName })
+                });
+                
+                if (response.ok) {
+                    showSuccess('Room created successfully');
+                    document.getElementById('roomName').value = '';
+                    loadRooms();
+                } else {
+                    const error = await response.json();
+                    showError(error.detail || 'Failed to create room');
+                }
+            } catch (error) {
+                showError('Error: ' + error.message);
+            }
+        }
+        
+        // Load available rooms
+        async function loadRooms() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/rooms`);
+                const rooms = await response.json();
+                
+                const roomsList = document.getElementById('roomsList');
+                
+                if (rooms.length === 0) {
+                    roomsList.innerHTML = '<div style="text-align: center; color: #95a5a6; font-size: 0.9em;">No rooms available</div>';
+                    return;
+                }
+                
+                roomsList.innerHTML = rooms.map(room => `
+                    <div class="room-item">
+                        <div class="room-name">${room.name}</div>
+                        <button class="join-btn" onclick="joinRoom('${room.id}', '${room.name}')">
+                            Join
+                        </button>
+                    </div>
+                `).join('');
+            } catch (error) {
+                showError('Failed to load rooms');
+            }
+        }
+        
+        // Join a room
+        async function joinRoom(roomId, roomName) {
+            if (!currentUser) {
+                showError('Please create a user first');
+                return;
+            }
+            
+            currentRoom = { id: roomId, name: roomName };
+            
+            try {
+                // Join room via REST API
+                await fetch(`${API_BASE_URL}/rooms/${roomId}/join`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ user_id: currentUser.id })
+                });
+                
+                // Connect WebSocket
+                connectWebSocket(roomId, currentUser.id);
+                
+                // Update UI
+                document.getElementById('chatTitle').textContent = `Room: ${roomName}`;
+                document.getElementById('roomInfo').textContent = `Connected as ${currentUser.username}`;
+                document.getElementById('wsEndpoint').textContent = `/ws/${roomId}/${currentUser.id}`;
+                
+                // Load existing messages
+                loadMessages();
+                
+            } catch (error) {
+                showError('Error joining room: ' + error.message);
+            }
+        }
+        
+        // Connect WebSocket
+        function connectWebSocket(roomId, userId) {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws/${roomId}/${userId}`;
+            
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = function() {
+                updateStatus('Connected to room', true);
+                document.getElementById('messageInput').disabled = false;
+                document.getElementById('sendBtn').disabled = false;
+                showSuccess('WebSocket connected!');
+            };
+            
+            ws.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                displayMessage(data);
+            };
+            
+            ws.onclose = function() {
+                updateStatus('Disconnected from room', false);
+                document.getElementById('messageInput').disabled = true;
+                document.getElementById('sendBtn').disabled = true;
+                showError('WebSocket disconnected');
+            };
+            
+            ws.onerror = function() {
+                updateStatus('Connection error', false);
+                showError('WebSocket connection error');
+            };
+        }
+        
+        // Load existing messages
+        async function loadMessages() {
+            if (!currentRoom) return;
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/rooms/${currentRoom.id}/messages`);
+                const messages = await response.json();
+                
+                const chatMessages = document.getElementById('chatMessages');
+                chatMessages.innerHTML = '';
+                
+                messages.forEach(message => {
+                    displayMessage({
+                        type: 'message',
+                        username: message.username,
+                        content: message.content,
+                        timestamp: message.timestamp,
+                        user_id: message.user_id
+                    });
+                });
+            } catch (error) {
+                showError('Failed to load messages');
+            }
+        }
+        
+        // Display a message in the chat
+        function displayMessage(data) {
+            const chatMessages = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            
+            if (data.type === 'message') {
+                const isCurrentUser = currentUser && data.user_id === currentUser.id;
+                const time = new Date(data.timestamp).toLocaleTimeString();
+                
+                messageDiv.className = `message ${isCurrentUser ? 'user' : 'other'}`;
+                messageDiv.innerHTML = `
+                    <div class="message-header">${data.username} • ${time}</div>
+                    <div>${data.content}</div>
+                `;
+            } else {
+                // System message
+                messageDiv.className = 'message system';
+                messageDiv.textContent = data.message || data.content || 'System message';
+            }
+            
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+        
+        // Send a message
+        function sendMessage() {
+            const messageInput = document.getElementById('messageInput');
+            const content = messageInput.value.trim();
+            
+            if (!content || !ws || ws.readyState !== WebSocket.OPEN) {
+                return;
+            }
+            
+            ws.send(JSON.stringify({ content }));
+            messageInput.value = '';
+        }
+        
+        // Initialize the app
+        window.onload = function() {
+            updateStatus('Ready - Create user to begin');
+            loadRooms();
+            
+            // Load rooms every 30 seconds
+            setInterval(loadRooms, 30000);
+        };
+    </script>
+</body>
+</html>
