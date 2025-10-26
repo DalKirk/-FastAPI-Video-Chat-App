@@ -280,6 +280,22 @@ async def ai_health_redirect():
     from api.routes.chat import chat_health_check
     return await chat_health_check()
 
+# Add proxy endpoint for Vercel frontend compatibility
+@app.post("/api/ai-proxy")
+async def ai_proxy(request: Request):
+    """Proxy endpoint for Vercel frontend - redirects to /api/v1/chat"""
+    try:
+        body = await request.json()
+        
+        # Forward to the main chat endpoint
+        from api.routes.chat import chat_endpoint, get_ai_service
+        
+        ai_service = get_ai_service()
+        return await chat_endpoint(request, ai_service)
+    except Exception as e:
+        logger.error(f"AI proxy error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 manager = ConnectionManager()
 
 # API Endpoints
