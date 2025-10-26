@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from app.models.chat_models import ChatRequest, ChatResponse
 from services.ai_service import AIService
 import logging
@@ -21,39 +21,33 @@ def get_ai_service() -> AIService:
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(
-    request: ChatRequest,
+    request: Request,
     ai_service: AIService = Depends(get_ai_service)
 ):
     """
     Main chat endpoint that provides context-aware, formatted AI responses.
-    
-    Args:
-        request: ChatRequest containing the user's message and conversation history.
-        ai_service: Injected AIService dependency.
-        
-    Returns:
-        ChatResponse with formatted content, format type, and metadata.
-        
-    Raises:
-        HTTPException: If the AI service encounters an error.
+    Accepts payloads shaped as ChatRequest or legacy/alternate shapes.
     """
     try:
-        logger.info(f"Chat request received: {request.message[:50]}...")
-        
+        # Let Pydantic model normalize various shapes
+        body = await request.json()
+        chat_req = ChatRequest.model_validate(body)
+        logger.info(f"Chat request received: {chat_req.message[:50]}...")
+
         # Generate response using AI service
         response = await ai_service.generate_response(
-            user_input=request.message,
-            history=request.conversation_history
+            user_input=chat_req.message,
+            history=chat_req.conversation_history
         )
-        
+
         logger.info(f"Response generated: format={response.get('format_type')}, success={response.get('success')}")
-        
+
         return ChatResponse(**response)
-        
+
     except Exception as e:
         logger.error(f"Error in chat endpoint: {e}", exc_info=True)
         raise HTTPException(
-            status_code=500,
+            status_code=422 if "message' is required" in str(e) else 500,
             detail=f"Failed to generate response: {str(e)}"
         )
 
