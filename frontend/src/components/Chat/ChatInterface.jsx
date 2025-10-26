@@ -31,15 +31,18 @@ const ChatInterface = () => {
       timestamp: new Date().toISOString(),
     };
 
-    // Add user message to chat
-    setMessages(prev => [...prev, userMessage]);
+    // Prepare updated history to include the just-typed message
+    const updatedHistory = [...messages, userMessage];
+
+    // Add user message to chat UI
+    setMessages(updatedHistory);
     setInputValue('');
     setError(null);
     setIsLoading(true);
 
     try {
-      // Send to backend
-      const response = await sendChatMessage(inputValue.trim(), messages);
+      // Send to backend with latest history
+      const response = await sendChatMessage(userMessage.content, updatedHistory);
 
       // Add AI response to chat
       const aiMessage = {
@@ -173,7 +176,6 @@ const ChatInterface = () => {
                 strokeLinecap="round" 
                 strokeLinejoin="round"
               />
-            </svg>
           )}
         </button>
       </div>

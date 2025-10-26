@@ -47,19 +47,16 @@ class AIService:
                 format_rules
             )
 
-            # Step 4: CRITICAL FIX - Clean inline bullets FIRST
-            cleaned_response = self._clean_raw_content(raw_response)
+            # Step 4: Convert plain text to proper markdown if needed
+            markdown_response = self._ensure_markdown_format(raw_response, context, format_rules)
 
-            # Step 5: Convert plain text to proper markdown if needed
-            markdown_response = self._ensure_markdown_format(cleaned_response, context, format_rules)
-
-            # Step 6: Apply post-processing formatting (cleanup, not restructure)
+            # Step 5: Apply post-processing formatting (cleanup, not restructure)
             formatted_response = self.formatter.format_response(
                 markdown_response,
                 format_rules
             )
 
-            # Step 7: Quality check
+            # Step 6: Quality check
             if self._quality_check(formatted_response):
                 return {
                     'content': formatted_response,
@@ -107,13 +104,12 @@ class AIService:
         """
         base_prompt = "You are a helpful AI assistant. "
         
-        # Add explicit markdown instructions with emphasis on line breaks
+        # Add explicit markdown instructions
         markdown_instructions = (
             "Format your responses using proper markdown syntax:\n"
             "- Use ## for main section headers and ### for subsections\n"
-            "- IMPORTANT: For bullet points, put each item on its OWN LINE starting with - or *\n"
-            "- Example: '- First item\\n- Second item\\n- Third item' NOT '- First- Second- Third'\n"
-            "- Use 1., 2., 3. for numbered lists (each on separate line)\n"
+            "- Use - or * for bullet points (one per line)\n"
+            "- Use 1., 2., 3. for numbered lists\n"
             "- Use **bold** for emphasis on important terms\n"
             "- Use `inline code` for short code snippets\n"
             "- Use ```language blocks for multi-line code\n"
@@ -134,7 +130,7 @@ class AIService:
         if format_rules.get('use_headers'):
             base_prompt += "Organize your response with clear headers (## Header).\n"
         if format_rules.get('use_lists'):
-            base_prompt += "Use bullet points or numbered lists to make information scannable. Each list item MUST be on a separate line.\n"
+            base_prompt += "Use bullet points or numbered lists to make information scannable.\n"
         if format_rules.get('paragraph_style') == 'short':
             base_prompt += "Keep paragraphs brief (2-3 sentences max).\n"
 
@@ -146,41 +142,6 @@ class AIService:
             )
 
         return base_prompt
-
-    def _clean_raw_content(self, content: str) -> str:
-        """
-        CRITICAL FIX: Clean up inline bullets and convert them to separate lines.
-        This handles cases where AI returns: "text\u2022 bullet1\u2022 bullet2\u2022 bullet3"
-        """
-        # Fix 1: Split bullets that appear after sentence endings
-        # "text.\u2022 bullet" -> "text.\n\u2022 bullet"
-        content = re.sub(r'([.!?:])(\[\u2022\-\*\])?([\u2022\-\*])\s*', r'\1\n\3 ', content)
-        
-        # Fix 2: Split bullets that appear inline without sentence endings
-        # "text\u2022 bullet\u2022 another" -> "text\n\u2022 bullet\n\u2022 another"
-        content = re.sub(r'([^.!?\n])([\u2022\-\*])\s+([A-Z])', r'\1\n\2 \3', content)
-        
-        # Fix 3: Ensure bullets at start of content get proper spacing
-        content = re.sub(r'^([\u2022\-\*])\s*', r'\1 ', content, flags=re.MULTILINE)
-        
-        # Fix 4: Split numbered lists that are inline
-        # "1. text2. text" -> "1. text\n2. text"
-        content = re.sub(r'(\d+\.)\s*([A-Z][^.]*\.)(\d+\.)', r'\1 \2\n\3', content)
-        
-        # Fix 5: Split word-numbered items (First, Second, etc.)
-        # "First, textSecond, text" -> "First, text\nSecond, text"
-        content = re.sub(
-            r'(First|Second|Third|Fourth|Fifth|Sixth|Seventh|Eighth|Ninth|Tenth)[:,]\s*([^.!?]*[.!?])\s*(First|Second|Third|Fourth|Fifth|Sixth|Seventh|Eighth|Ninth|Tenth)', 
-            r'\1: \2\n\3',
-            content, 
-            flags=re.IGNORECASE
-        )
-        
-        # Fix 6: Handle special case where bullets have no space after them
-        # "•Text" -> "• Text"
-        content = re.sub(r'([\u2022\-\*])([A-Z])', r'\1 \2', content)
-        
-        return content.strip()
 
     def _ensure_markdown_format(self, content: str, context: Dict, format_rules: Dict) -> str:
         """
@@ -195,82 +156,61 @@ class AIService:
         lines = content.split('\n')
         formatted_lines = []
         in_code_block = False
-        prev_was_bullet = False
 
         for i, line in enumerate(lines):
             stripped = line.strip()
 
-            # Skip empty lines but maintain spacing after lists
+            # Skip empty lines
             if not stripped:
-                if prev_was_bullet:
-                    formatted_lines.append('')
-                    prev_was_bullet = False
+                formatted_lines.append('')
                 continue
 
             # Detect code blocks
             if stripped.startswith('```'):
                 in_code_block = not in_code_block
                 formatted_lines.append(line)
-                prev_was_bullet = False
                 continue
 
             if in_code_block:
                 formatted_lines.append(line)
                 continue
 
-            # Convert bullet points: "\u2022 text", "- text", "* text" -> "- text"
-            bullet_match = re.match(r'^[\u2022\-\*]\s*(.+)$', stripped)
-            if bullet_match:
-                content_part = bullet_match.group(1).strip()
-                formatted_lines.append(f"- {content_part}")
-                prev_was_bullet = True
-                continue
+            # Convert numbered patterns to markdown lists
+            # Match: "1.", "First,", "Second,", etc.
+            numbered_pattern = r'^(\d+\.|\d+\))\s*(.+)$'
+            word_number_pattern = r'^(First|Second|Third|Fourth|Fifth|Sixth|Seventh|Eighth|Ninth|Tenth)[,:]?\s*(.+)$'
 
-            # Convert numbered patterns: "1. text", "2) text" -> "- text"
-            numbered_match = re.match(r'^(\\d+[\\.\)])\\s*(.+)$', stripped)
+            numbered_match = re.match(numbered_pattern, stripped)
+            word_match = re.match(word_number_pattern, stripped, re.IGNORECASE)
+
             if numbered_match:
-                content_part = numbered_match.group(2).strip()
+                content_part = numbered_match.group(2)
                 formatted_lines.append(f"- {content_part}")
-                prev_was_bullet = True
-                continue
-
-            # Convert word numbers: "First: text" -> "- **First**: text"
-            word_match = re.match(
-                r'^(First|Second|Third|Fourth|Fifth|Sixth|Seventh|Eighth|Ninth|Tenth)[,:]?\\s*(.+)$',
-                stripped,
-                re.IGNORECASE
-            )
-            if word_match:
+            elif word_match:
                 word = word_match.group(1)
-                content_part = word_match.group(2).strip()
+                content_part = word_match.group(2)
                 formatted_lines.append(f"- **{word}**: {content_part}")
-                prev_was_bullet = True
-                continue
-
             # Detect potential headers (short, title-case, no ending punctuation)
-            if (len(stripped) < 60 and 
-                stripped[0].isupper() and 
-                not stripped.endswith(('.', '!', '?', ',')) and
-                not prev_was_bullet and
-                format_rules.get('use_headers')):
+            elif (len(stripped) < 60 and 
+                  stripped[0].isupper() and 
+                  not stripped.endswith(('.', '!', '?', ',')) and
+                  format_rules.get('use_headers')):
                 # Check if next line exists and is content
                 if i + 1 < len(lines) and lines[i + 1].strip():
                     formatted_lines.append(f"## {stripped}")
-                    prev_was_bullet = False
-                    continue
                 else:
                     formatted_lines.append(stripped)
-                    continue
-
-            # Regular paragraph
-            if prev_was_bullet:
-                formatted_lines.append('')  # Add spacing after lists
-            formatted_lines.append(stripped)
-            prev_was_bullet = False
+            # Already a list item (-, *, •)
+            elif stripped.startswith(('-', '*', '•')):
+                clean_content = stripped.lstrip('-*• ').strip()
+                formatted_lines.append(f"- {clean_content}")
+            else:
+                # Regular paragraph
+                formatted_lines.append(stripped)
 
         # Join and clean up excessive blank lines
         result = '\n'.join(formatted_lines)
-        result = re.sub(r'\n{3,}', '\n\n', result)  # Max 2 consecutive newlines
+        result = re.sub(r'\n{3,}', '\n\n', result)
         return result.strip()
 
     def _has_markdown_structure(self, content: str) -> bool:
