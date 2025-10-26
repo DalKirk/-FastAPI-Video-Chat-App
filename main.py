@@ -230,6 +230,21 @@ app.add_middleware(
   max_age=600,  # Cache preflight for 10 minutes
 )
 
+# Add Rate Limiting Middleware - Protect API endpoints
+per_endpoint_limits = {
+    "/api/v1/chat": RateLimitConfig(requests_limit=20, time_window=60),  # AI chat: 20 req/min
+    "/rooms/*/live-stream": RateLimitConfig(requests_limit=5, time_window=60),  # Live streams: 5 req/min
+    "/rooms/*/video-upload": RateLimitConfig(requests_limit=10, time_window=60),  # Uploads: 10 req/min
+}
+
+app.add_middleware(
+    RateLimitMiddleware,
+    requests_limit=100,  # Default: 100 requests per minute
+    time_window=60,
+    per_endpoint_limits=per_endpoint_limits,
+    exclude_paths={"/health", "/", "/docs", "/openapi.json", "/redoc", "/_debug"},
+)
+
 # Add explicit OPTIONS handler for all routes
 @app.options("/{full_path:path}")
 async def options_handler(full_path: str):
@@ -257,6 +272,13 @@ async def global_exception_handler(request: Request, exc: Exception):
 # app.include_router(ai_router)  # REMOVED: Old /ai/generate endpoint - frontend uses /api/v1/chat instead
 app.include_router(streaming_ai_router)  # Keep for future streaming feature
 app.include_router(chat_router)  # Main chat endpoint used by frontend
+
+# Redirect old /ai/health to new endpoint for backward compatibility
+@app.get("/ai/health")
+async def ai_health_redirect():
+    """Redirect to new health endpoint"""
+    from api.routes.chat import chat_health_check
+    return await chat_health_check()
 
 manager = ConnectionManager()
 
@@ -590,9 +612,9 @@ async def create_video_upload(room_id: str, upload_data: VideoUploadCreate, requ
       detail="Bunny.net Stream not configured"
     )
 
-  title = (upload_data.title or "").strip() or "Untitled"
+  title = (upload_data.title or "").trim() || "Untitled";
 
-  try:
+  try {
     import requests
     
     headers = {
@@ -658,12 +680,13 @@ async def create_video_upload(room_id: str, upload_data: VideoUploadCreate, requ
       "timestamp": datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z"
     }
     
-    try:
+    try {
       await manager.broadcast_to_room(json.dumps(upload_message), room_id)
-    except Exception as e:
+    } catch (Exception e) {
       logger.error(f"Failed to broadcast: {e}")
+    }
 
-    # ✅ Returns proxy upload URL
+    // ✅ Returns proxy upload URL
     return {
       "id": video_guid,
       "upload_url": upload_url,
@@ -671,9 +694,10 @@ async def create_video_upload(room_id: str, upload_data: VideoUploadCreate, requ
       "title": title
     }
 
-  except Exception as e:
+  } catch (Exception e) {
     logger.error(f"Video upload creation failed: {e}", exc_info=True)
-    raise HTTPException(status_code=500, detail=str(e))
+    throw HTTPException(status_code=500, detail=str(e))
+  }
 
 @app.put('/upload-proxy/{upload_id}')
 async def upload_proxy(upload_id: str, request: Request):
@@ -710,7 +734,7 @@ async def upload_proxy(upload_id: str, request: Request):
   video_assets[upload_id]['status'] = 'processing'
 
   # Broadcast processing message
-  try:
+  try {
     processing_message = {
       'type': 'video_processing',
       'video_id': upload_id,
@@ -719,8 +743,9 @@ async def upload_proxy(upload_id: str, request: Request):
       'timestamp': datetime.now(timezone.utc).isoformat() + 'Z'
     }
     await manager.broadcast_to_room(json.dumps(processing_message), video_assets[upload_id]['room_id'])
-  except Exception:
+  } catch (Exception) {
     logger.exception('Failed to broadcast processing message')
+  }
 
   return { 'status': 'uploaded', 'upload_id': upload_id }
 
@@ -1111,4 +1136,6 @@ window.onload=loadRooms;
 def get_chat_page():
   """Serve the optimized chat interface"""
   return CHAT_HTML
+
+from middleware.rate_limit import RateLimitMiddleware, RateLimitConfig
 
