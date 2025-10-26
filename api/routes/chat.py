@@ -2,7 +2,6 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from app.models.chat_models import ChatRequest, ChatResponse
 from services.ai_service import AIService
 import logging
-import json
 
 logger = logging.getLogger(__name__)
 
@@ -27,22 +26,23 @@ async def chat_endpoint(
 ):
     """
     Main chat endpoint that provides context-aware, formatted AI responses.
-    Accepts payloads shaped as ChatRequest or legacy/alternate shapes.
+
+    Accepts arbitrary JSON, validates with Pydantic, and returns 422 on bad input
+    instead of raising a 500 error.
     """
     try:
-        raw = await request.body()
-        if not raw:
-            raise HTTPException(status_code=400, detail="Empty request body")
-
-        # Try JSON, else treat as raw text
-        body: object
+        # Read raw JSON and validate explicitly to provide clean 422 on errors
         try:
-            body = json.loads(raw.decode("utf-8", errors="ignore"))
-        except json.JSONDecodeError:
-            # Plain text body -> treat as message
-            body = {"message": raw.decode("utf-8", errors="ignore").strip()}
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+        # Ensure required field `message` exists before validation for clearer error
+        if not isinstance(body, dict) or "message" not in body or not str(body.get("message", "")).strip():
+            raise HTTPException(status_code=422, detail="Field 'message' is required")
 
         chat_req = ChatRequest.model_validate(body)
+
         logger.info(f"Chat request received: {chat_req.message[:50]}...")
 
         # Generate response using AI service
@@ -51,20 +51,21 @@ async def chat_endpoint(
             history=chat_req.conversation_history
         )
 
-        logger.info(f"Response generated: format={response.get('format_type')}, success={response.get('success')}")
+        logger.info(
+            "Response generated: format=%s, success=%s",
+            response.get('format_type'), response.get('success')
+        )
 
         return ChatResponse(**response)
 
     except HTTPException:
+        # Re-raise expected HTTP errors (422/400)
         raise
     except Exception as e:
         logger.error(f"Error in chat endpoint: {e}", exc_info=True)
-        # If validation error surfaced, provide clear detail
-        msg = str(e)
-        status = 422 if "message' is required" in msg or "Empty request body" in msg else 500
         raise HTTPException(
-            status_code=status,
-            detail=f"Failed to generate response: {msg}"
+            status_code=500,
+            detail=f"Failed to generate response: {str(e)}"
         )
 
 
