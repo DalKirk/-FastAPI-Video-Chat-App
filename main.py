@@ -241,6 +241,15 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.include_router(streaming_ai_router)
 app.include_router(chat_router)  # NEW: Add this line
 
+# Legacy redirect for health check monitors
+from fastapi.responses import RedirectResponse as RResp
+
+@app.get("/ai/health")
+async def legacy_ai_health():
+    """Redirect old /ai/health to new endpoint"""
+    return RResp(url="/api/v1/chat/health", status_code=301)
+
+
 manager = ConnectionManager()
 
 # API Endpoints
