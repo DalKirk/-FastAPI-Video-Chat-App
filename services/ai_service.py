@@ -150,14 +150,14 @@ class AIService:
     def _clean_raw_content(self, content: str) -> str:
         """
         CRITICAL FIX: Clean up inline bullets and convert them to separate lines.
-        This handles cases where AI returns: "text• bullet1• bullet2• bullet3"
+        This handles cases where AI returns: "text\u2022 bullet1\u2022 bullet2\u2022 bullet3"
         """
         # Fix 1: Split bullets that appear after sentence endings
-        # "text.• bullet" -> "text.\n• bullet"
+        # "text.\u2022 bullet" -> "text.\n\u2022 bullet"
         content = re.sub(r'([.!?:])(\[\u2022\-\*\])?([\u2022\-\*])\s*', r'\1\n\3 ', content)
         
         # Fix 2: Split bullets that appear inline without sentence endings
-        # "text• bullet• another" -> "text\n• bullet\n• another"
+        # "text\u2022 bullet\u2022 another" -> "text\n\u2022 bullet\n\u2022 another"
         content = re.sub(r'([^.!?\n])([\u2022\-\*])\s+([A-Z])', r'\1\n\2 \3', content)
         
         # Fix 3: Ensure bullets at start of content get proper spacing
@@ -218,7 +218,7 @@ class AIService:
                 formatted_lines.append(line)
                 continue
 
-            # Convert bullet points: "• text", "- text", "* text" -> "- text"
+            # Convert bullet points: "\u2022 text", "- text", "* text" -> "- text"
             bullet_match = re.match(r'^[\u2022\-\*]\s*(.+)$', stripped)
             if bullet_match:
                 content_part = bullet_match.group(1).strip()
@@ -227,7 +227,7 @@ class AIService:
                 continue
 
             # Convert numbered patterns: "1. text", "2) text" -> "- text"
-            numbered_match = re.match(r'^(\d+[\.\)])\s*(.+)$', stripped)
+            numbered_match = re.match(r'^(\\d+[\\.\)])\\s*(.+)$', stripped)
             if numbered_match:
                 content_part = numbered_match.group(2).strip()
                 formatted_lines.append(f"- {content_part}")
@@ -236,7 +236,7 @@ class AIService:
 
             # Convert word numbers: "First: text" -> "- **First**: text"
             word_match = re.match(
-                r'^(First|Second|Third|Fourth|Fifth|Sixth|Seventh|Eighth|Ninth|Tenth)[,:]?\s*(.+)$',
+                r'^(First|Second|Third|Fourth|Fifth|Sixth|Seventh|Eighth|Ninth|Tenth)[,:]?\\s*(.+)$',
                 stripped,
                 re.IGNORECASE
             )
