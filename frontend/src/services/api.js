@@ -75,7 +75,7 @@ export const sendChatMessage = async (message, conversationHistory = []) => {
 export const checkChatHealth = async () => {
   try {
     const response = await fetch(`${API_BASE_URL}/ai/health`);
-
+    
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
