@@ -27,17 +27,7 @@ async def chat_endpoint(
 ):
     """
     Main chat endpoint that provides context-aware, formatted AI responses.
-
-    Accepts flexible payloads. Preferred shape:
-    {
-      "message": "...",
-      "conversation_history": [{"username":"User","content":"...","timestamp":"..."}]
-    }
-
-    Also tolerates:
-      - { "prompt": "..." }
-      - { "text": "..." }
-      - { "messages": [{"role":"user","content":"..."}, ...] }
+    Accepts flexible payloads and normalizes to ChatRequest.
     """
     try:
         try:
@@ -55,12 +45,33 @@ async def chat_endpoint(
                     message = str(m.get("content")).strip()
                     break
 
-        # Build conversation history from either provided conversation_history or messages
+        # If still missing, try to derive from conversation_history array
         conv_history: List[Dict[str, Any]] = []
         if isinstance(body.get("conversation_history"), list):
             conv_history = body["conversation_history"]
-        elif isinstance(body.get("messages"), list):
-            # Map OpenAI-like messages to backend shape
+            if not message:
+                # Prefer the last user entry with non-empty content
+                for m in reversed(conv_history):
+                    if not isinstance(m, dict):
+                        continue
+                    content = str(m.get("content", "")).strip()
+                    if not content:
+                        continue
+                    uname = (m.get("username") or "").strip().lower()
+                    if uname == "user":
+                        message = content
+                        break
+                # If none labeled 'User', pick the last non-empty content
+                if not message:
+                    for m in reversed(conv_history):
+                        if isinstance(m, dict):
+                            content = str(m.get("content", "")).strip()
+                            if content:
+                                message = content
+                                break
+
+        # Build conversation history from messages[] if not provided
+        if not conv_history and isinstance(body.get("messages"), list):
             for m in body["messages"]:
                 if not isinstance(m, dict) or "content" not in m:
                     continue
