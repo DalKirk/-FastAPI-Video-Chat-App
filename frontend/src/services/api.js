@@ -2,8 +2,9 @@
  * API service for communicating with the FastAPI backend
  */
 
-// Use Railway URL directly if REACT_APP_API_URL is not set
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://fastapi-video-chat-app-production.up.railway.app';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+
+console.log('?? API_BASE_URL:', API_BASE_URL); // Debug log
 
 /**
  * Send a chat message to the AI backend
@@ -12,35 +13,51 @@ const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://fastapi-video-cha
  * @returns {Promise<Object>} - The AI response
  */
 export const sendChatMessage = async (message, conversationHistory = []) => {
-  console.log('?? Sending message to:', API_BASE_URL);
-  console.log('?? Message:', message);
-  
+  // Validate message before sending
+  if (!message || typeof message !== 'string' || !message.trim()) {
+    console.error('? sendChatMessage: message is empty or invalid:', message);
+    throw new Error('Message cannot be empty');
+  }
+
+  const payload = {
+    message: message.trim(),
+    conversation_history: conversationHistory.map(msg => ({
+      username: msg.role === 'user' ? 'User' : 'Assistant',
+      content: msg.content,
+      timestamp: msg.timestamp || new Date().toISOString(),
+    })),
+  };
+
+  console.log('?? Sending to backend:', {
+    url: `${API_BASE_URL}/api/v1/chat`,
+    message: payload.message.substring(0, 50) + '...',
+    historyLength: payload.conversation_history.length
+  });
+
   try {
     const response = await fetch(`${API_BASE_URL}/api/v1/chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        message,
-        conversation_history: conversationHistory.map(msg => ({
-          username: msg.role === 'user' ? 'User' : 'Assistant',
-          content: msg.content,
-          timestamp: msg.timestamp || new Date().toISOString(),
-        })),
-      }),
+      body: JSON.stringify(payload),
     });
 
     console.log('?? Response status:', response.status);
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      console.error('? Error response:', errorData);
+      console.error('? Backend error:', errorData);
       throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
     }
 
     const data = await response.json();
-    console.log('? Success! Response:', data);
+    console.log('? Response received:', {
+      format_type: data.format_type,
+      content_length: data.content?.length,
+      success: data.success
+    });
+    
     return data;
   } catch (error) {
     console.error('? Error sending chat message:', error);

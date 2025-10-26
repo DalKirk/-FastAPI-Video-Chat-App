@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 
 # FastAPI and related imports
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request, BackgroundTasks
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
@@ -215,10 +215,8 @@ allowed_origins = [
 ]
 
 # Log CORS configuration on startup
-
 if os.getenv("ENVIRONMENT") != "production":
   logger.info("⚠️  Development mode: Allowing all origins for CORS")
-  # allowed_origins.append("*")  # DISABLED: Conflicts with credentials
 else:
   logger.info("✅ Production mode: Restricted CORS origins")
 
@@ -228,7 +226,23 @@ app.add_middleware(
   allow_credentials=True,
   allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allow_headers=["*"],
+  expose_headers=["*"],
+  max_age=600,  # Cache preflight for 10 minutes
 )
+
+# Add explicit OPTIONS handler for all routes
+@app.options("/{full_path:path}")
+async def options_handler(full_path: str):
+    """Handle CORS preflight OPTIONS requests"""
+    return Response(
+        status_code=200,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Max-Age": "600",
+        }
+    )
 
 # Global exception handler
 @app.exception_handler(Exception)
