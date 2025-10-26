@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends, Request
-from app.models.chat_models import ChatRequest, ChatResponse, Message as ChatMsgModel
+from app.models.chat_models import ChatRequest, ChatResponse
 from services.ai_service import AIService
 import logging
 from typing import List, Dict, Any
@@ -26,8 +26,9 @@ async def chat_endpoint(
     ai_service: AIService = Depends(get_ai_service)
 ):
     """
-    Main chat endpoint that provides context-aware, formatted AI responses.
-    Accepts flexible payloads and normalizes to ChatRequest.
+    Accept flexible payloads and normalize to ChatRequest.
+    Derive message from message/prompt/text, messages[], or conversation_history[].
+    Normalize conversation_history entries to {username, content, timestamp}.
     """
     try:
         try:
@@ -35,86 +36,105 @@ async def chat_endpoint(
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid JSON body")
 
-        # Infer message from alternate fields if missing
+        # 1) Derive message from preferred fields
         message: str = (body.get("message") or body.get("prompt") or body.get("text") or "").strip()
 
-        # If still missing, try to derive from OpenAI-like messages array
+        # 2) Derive from messages[] if needed
         if not message and isinstance(body.get("messages"), list):
             for m in reversed(body["messages"]):
-                if isinstance(m, dict) and m.get("role") == "user" and str(m.get("content", "")).strip():
-                    message = str(m.get("content")).strip()
+                if not isinstance(m, dict):
+                    continue
+                content = (str(m.get("content") or m.get("message") or m.get("text") or "")).strip()
+                role = (m.get("role") or "").strip().lower()
+                if role == "user" and content:
+                    message = content
                     break
-
-        # If still missing, try to derive from conversation_history array
-        conv_history: List[Dict[str, Any]] = []
-        if isinstance(body.get("conversation_history"), list):
-            conv_history = body["conversation_history"]
+            # fallback: last non-empty content
             if not message:
-                # Prefer the last user entry with non-empty content
-                for m in reversed(conv_history):
+                for m in reversed(body["messages"]):
                     if not isinstance(m, dict):
                         continue
-                    content = str(m.get("content", "")).strip()
-                    if not content:
-                        continue
-                    uname = (m.get("username") or "").strip().lower()
-                    if uname == "user":
+                    content = (str(m.get("content") or m.get("message") or m.get("text") or "")).strip()
+                    if content:
                         message = content
                         break
-                # If none labeled 'User', pick the last non-empty content
-                if not message:
-                    for m in reversed(conv_history):
-                        if isinstance(m, dict):
-                            content = str(m.get("content", "")).strip()
-                            if content:
-                                message = content
-                                break
 
-        # Build conversation history from messages[] if not provided
-        if not conv_history and isinstance(body.get("messages"), list):
-            for m in body["messages"]:
-                if not isinstance(m, dict) or "content" not in m:
+        # Prepare conversation history (normalize entries)
+        raw_history = body.get("conversation_history")
+        normalized_history: List[Dict[str, Any]] = []
+
+        if isinstance(raw_history, list):
+            for item in raw_history:
+                if not isinstance(item, dict):
                     continue
-                role = m.get("role", "assistant")
-                conv_history.append({
-                    "username": "User" if role == "user" else "Assistant",
-                    "content": m.get("content", ""),
-                    "timestamp": m.get("timestamp") or m.get("time") or None
+                # map possible keys to expected ones
+                role = (item.get("role") or "").strip().lower()
+                username = item.get("username")
+                if not username:
+                    username = "User" if role == "user" else ("Assistant" if role else "Assistant")
+                content = (str(item.get("content") or item.get("message") or item.get("text") or "")).strip()
+                ts = item.get("timestamp") or item.get("time") or None
+
+                normalized_history.append({
+                    "username": username,
+                    "content": content,
+                    "timestamp": ts
                 })
 
-        # Validate required message
+            # 3) Derive message from conversation_history if still missing
+            if not message:
+                # prefer last user entry with non-empty content
+                for m in reversed(normalized_history):
+                    if m.get("username", "").strip().lower() == "user" and m.get("content"):
+                        message = m["content"].strip()
+                        break
+                # fallback: any last non-empty content
+                if not message:
+                    for m in reversed(normalized_history):
+                        if m.get("content"):
+                            message = m["content"].strip()
+                            break
+
+        # Also map messages[] to history if history not provided
+        if not normalized_history and isinstance(body.get("messages"), list):
+            for m in body["messages"]:
+                if not isinstance(m, dict):
+                    continue
+                role = (m.get("role") or "").strip().lower()
+                username = "User" if role == "user" else "Assistant"
+                content = (str(m.get("content") or m.get("message") or m.get("text") or "")).strip()
+                ts = m.get("timestamp") or m.get("time") or None
+                normalized_history.append({
+                    "username": username,
+                    "content": content,
+                    "timestamp": ts
+                })
+
         if not message:
             logger.warning("/api/v1/chat missing 'message'. Body keys: %s", list(body.keys()))
             raise HTTPException(status_code=422, detail="Field 'message' is required")
 
-        # Compose normalized payload for model validation
-        normalized: Dict[str, Any] = {
+        normalized_payload: Dict[str, Any] = {
             "message": message,
-            "conversation_history": conv_history,
+            "conversation_history": normalized_history,
             "user_id": body.get("user_id"),
             "room_id": body.get("room_id"),
         }
 
-        chat_req = ChatRequest.model_validate(normalized)
-
+        chat_req = ChatRequest.model_validate(normalized_payload)
         logger.info("Chat request received: %s...", chat_req.message[:80])
 
-        # Generate response using AI service
         response = await ai_service.generate_response(
             user_input=chat_req.message,
             history=chat_req.conversation_history
         )
-
         return ChatResponse(**response)
 
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error in chat endpoint: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to generate response: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to generate response: {str(e)}")
 
 
 @router.get("/chat/health")
@@ -132,7 +152,4 @@ async def chat_health_check():
         }
     except Exception as e:
         logger.error(f"Health check failed: {e}")
-        return {
-            "status": "unhealthy",
-            "error": str(e)
-        }
+        return {"status": "unhealthy", "error": str(e)}
