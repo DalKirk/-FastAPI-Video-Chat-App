@@ -133,15 +133,17 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self, 
         client_id: str, 
         requests_limit: int, 
-        time_window: int
+        time_window: int,
+        endpoint: str = "",
     ) -> Tuple[bool, int, int]:
         """Check rate limit using Redis backend"""
         if not self.redis_client:
-            return await self._check_rate_limit_memory(client_id, requests_limit, time_window)
+            return await self._check_rate_limit_memory(client_id, requests_limit, time_window, endpoint)
         
         try:
             current_time = int(time.time())
-            key = f"rate_limit:{client_id}"
+            # Include endpoint in key for per-endpoint limits
+            key = f"rate_limit:{client_id}:{endpoint}" if endpoint else f"rate_limit:{client_id}"
             
             # Use Redis sorted set with scores as timestamps
             pipe = self.redis_client.pipeline()
@@ -172,25 +174,29 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             
         except Exception:
             # Fallback to memory-based limiting on Redis errors
-            return await self._check_rate_limit_memory(client_id, requests_limit, time_window)
+            return await self._check_rate_limit_memory(client_id, requests_limit, time_window, endpoint)
 
     async def _check_rate_limit_memory(
         self, 
         client_id: str, 
         requests_limit: int, 
-        time_window: int
+        time_window: int,
+        endpoint: str = "",
     ) -> Tuple[bool, int, int]:
         """Check rate limit using in-memory storage"""
         current_time = time.time()
         cutoff_time = current_time - time_window
+        
+        # Create unique key combining client_id and endpoint for per-endpoint limits
+        storage_key = f"{client_id}:{endpoint}" if endpoint else client_id
 
         async with self._lock:
             # Periodic cleanup
             await self._cleanup_stale_entries(current_time)
             await self._enforce_max_entries()
             
-            history = self.request_history[client_id]
-            self.last_access[client_id] = current_time
+            history = self.request_history[storage_key]
+            self.last_access[storage_key] = current_time
             
             # Clean old requests outside the time window
             while history and history[0] <= cutoff_time:
@@ -222,11 +228,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # Check rate limit (Redis or memory)
         if self.use_redis and self.redis_client:
             allowed, remaining, retry_after = await self._check_rate_limit_redis(
-                client_id, requests_limit, time_window
+                client_id, requests_limit, time_window, request.url.path
             )
         else:
             allowed, remaining, retry_after = await self._check_rate_limit_memory(
-                client_id, requests_limit, time_window
+                client_id, requests_limit, time_window, request.url.path
             )
 
         if not allowed:
