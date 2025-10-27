@@ -191,7 +191,7 @@ app.add_middleware(
     requests_limit=100,
     time_window=60,
     per_endpoint_limits=per_endpoint_limits,
-    exclude_paths={"/health", "/", "/docs", "/openapi.json", "/redoc", "/_debug"},
+    exclude_paths={"/health", "/", "/docs", "/openapi.json", "/redoc", "/_debug", "/debug", "/api/_debug", "/api/debug"},
 )
 
 @app.options("/{full_path:path}")
@@ -254,6 +254,19 @@ async def debug_info():
         "auto_create_on_join": AUTO_CREATE_ON_JOIN,
         "auto_user_on_join": AUTO_USER_ON_JOIN,
     }
+
+# Additional aliases so debug works behind proxies or API prefixes
+@app.get("/debug")
+async def debug_info_alias():
+    return await debug_info()
+
+@app.get("/api/_debug")
+async def debug_info_api_prefixed():
+    return await debug_info()
+
+@app.get("/api/debug")
+async def debug_info_api_alias():
+    return await debug_info()
 
 @app.get("/health")
 async def health_check():
