@@ -38,7 +38,7 @@ BUNNY_PULL_ZONE = os.getenv("BUNNY_PULL_ZONE")
 BUNNY_COLLECTION_ID = os.getenv("BUNNY_COLLECTION_ID", "")
 bunny_enabled = all([BUNNY_API_KEY, BUNNY_LIBRARY_ID, BUNNY_PULL_ZONE])
 
-# Deployment behavior toggles (safer defaults for production stateless environments)
+# Deployment behavior toggles (kept for compatibility, but logic below is resilient by default)
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
 AUTO_CREATE_ON_WS_CONNECT = os.getenv("ALLOW_WEBSOCKET_AUTO_ROOMS", "true" if ENVIRONMENT == "production" else "false").lower() == "true"
 AUTO_CREATE_ON_JOIN = os.getenv("ALLOW_JOIN_AUTO_ROOMS", "true" if ENVIRONMENT == "production" else "false").lower() == "true"
@@ -80,7 +80,7 @@ class RoomCreate(BaseModel):
 
 class JoinRoomRequest(BaseModel):
     user_id: str
-    username: Optional[str] = None  # optional fallback for stateless envs
+    username: Optional[str] = None  # optional for stateless envs; backend will fallback to Guest if missing
 
 # In-memory storage
 rooms: Dict[str, Room] = {}
@@ -342,7 +342,7 @@ def get_room_messages(room_id: str, limit: int = 50):
 
 @app.post("/rooms/{room_id}/join")
 def join_room(room_id: str, join_data: JoinRoomRequest):
-    # Optionally auto-create a room in production/stateless envs
+    # Conditionally auto-create a room (prod/stateless envs only)
     if room_id not in rooms:
         if AUTO_CREATE_ON_JOIN:
             room = Room(id=room_id, name=f"Room {room_id[:8]}", created_at=datetime.now(timezone.utc))
@@ -354,11 +354,15 @@ def join_room(room_id: str, join_data: JoinRoomRequest):
         else:
             raise HTTPException(status_code=404, detail="Room not found")
 
-    # Optionally auto-create user if not found and username provided
+    # Conditionally auto-create user if not found
     if join_data.user_id not in users:
-        if AUTO_USER_ON_JOIN and join_data.username:
-            # Create user using provided id to preserve client state
-            user = User(id=join_data.user_id, username=join_data.username.strip(), joined_at=datetime.now(timezone.utc))
+        if AUTO_USER_ON_JOIN:
+            uname = (join_data.username or "").strip()
+            if len(uname) < 2 and ENVIRONMENT == "production":
+                uname = f"Guest-{join_data.user_id[:6]}"
+            if len(uname) < 2:
+                raise HTTPException(status_code=404, detail="User not found")
+            user = User(id=join_data.user_id, username=uname, joined_at=datetime.now(timezone.utc))
             users[join_data.user_id] = user
             logger.info(f"Auto-created user during join: {user.username} ({user.id})")
         else:
@@ -409,7 +413,7 @@ async def list_room_videos(room_id: str):
 # WebSocket endpoint
 @app.websocket("/ws/{room_id}/{user_id}")
 async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
-    # Optionally auto-create missing room in production/stateless envs
+    # Conditionally auto-create missing room (prod/stateless envs only)
     if room_id not in rooms:
         if AUTO_CREATE_ON_WS_CONNECT:
             room = Room(id=room_id, name=f"Room {room_id[:8]}", created_at=datetime.now(timezone.utc))
@@ -422,19 +426,23 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
             await websocket.close(code=4004, reason="Room not found")
             return
 
-    # If user isn't known, allow providing username via query string to auto-create in prod
+    # If user isn't known, allow providing username via query or fallback in prod
+    try:
+        qs = parse_qs(websocket.scope.get("query_string", b"").decode())
+    except Exception:
+        qs = {}
+    provided_username = None
+    if isinstance(qs, dict):
+        values = qs.get("username")
+        if values:
+            provided_username = values[0]
+
     if user_id not in users:
-        try:
-            qs = parse_qs(websocket.scope.get("query_string", b"").decode())
-        except Exception:
-            qs = {}
-        provided_username = None
-        if isinstance(qs, dict):
-            values = qs.get("username")
-            if values:
-                provided_username = values[0]
-        if ENVIRONMENT == "production" and provided_username and len(provided_username.strip()) >= 2:
-            user = User(id=user_id, username=provided_username.strip(), joined_at=datetime.now(timezone.utc))
+        if ENVIRONMENT == "production":
+            uname = (provided_username or "").strip()
+            if len(uname) < 2:
+                uname = f"Guest-{user_id[:6]}"
+            user = User(id=user_id, username=uname, joined_at=datetime.now(timezone.utc))
             users[user_id] = user
             logger.info(f"Auto-created user during websocket connect: {user.username} ({user.id})")
         else:
@@ -450,6 +458,8 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
     join_message = {
         "type": "user_joined",
         "message": f"{user.username} joined the chat",
+        "username": user.username,
+        "user_id": user.id,
         "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
     }
     await manager.broadcast_to_room(json.dumps(join_message), room_id)
@@ -457,10 +467,29 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
     try:
         while True:
             data = await websocket.receive_text()
-            message_data = json.loads(data)
+            try:
+                message_data = json.loads(data)
+            except Exception:
+                message_data = {"content": str(data)}
 
+            # Handle event-style messages (typing, live stream, video)
+            msg_type = message_data.get("type") if isinstance(message_data, dict) else None
+            if msg_type in {"typing_start", "typing_stop", "live_stream_created", "video_ready"}:
+                event_payload = dict(message_data)
+                event_payload.setdefault("user_id", user_id)
+                event_payload.setdefault("username", user.username)
+                event_payload.setdefault("timestamp", datetime.now(timezone.utc).isoformat() + "Z")
+                await manager.broadcast_to_room(json.dumps(event_payload), room_id)
+                continue
+
+            # Standard chat message expects a content field
             if not isinstance(message_data, dict) or "content" not in message_data:
                 await websocket.send_text(json.dumps({"type": "error", "message": "Invalid message format"}))
+                continue
+
+            content = (message_data.get("content") or "").strip()
+            if not content:
+                # ignore empty content quietly
                 continue
 
             message_id = str(uuid.uuid4())
@@ -469,7 +498,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
                 user_id=user_id,
                 username=user.username,
                 room_id=room_id,
-                content=message_data["content"].strip(),
+                content=content,
                 timestamp=datetime.now(timezone.utc).isoformat() + "Z"
             )
 
@@ -490,6 +519,8 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
         leave_message = {
             "type": "user_left",
             "message": f"{user.username} left the chat",
+            "username": user.username,
+            "user_id": user.id,
             "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
         }
         await manager.broadcast_to_room(json.dumps(leave_message), room_id)
@@ -503,24 +534,24 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
 @app.get("/chat", response_class=HTMLResponse)
 def get_chat_page():
     return """<!DOCTYPE html>
-<html><head><title>FastAPI Video Chat</title><meta charset="UTF-8">
+<html><head><title>FastAPI Video Chat</title><meta charset=\"UTF-8\">
 <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;background:#f5f5f5;height:100vh;display:flex;flex-direction:column}.container{max-width:100%;margin:0;padding:10px;height:100%;display:flex;flex-direction:column}.setup{background:white;padding:15px;border-radius:8px;margin-bottom:10px}.setup input,.setup button{width:100%;padding:12px;margin:5px 0;border:1px solid #ddd;border-radius:4px}.setup button{background:#007bff;color:white;border:none;cursor:pointer}.chat-interface{flex:1;display:none;flex-direction:column;background:white;border-radius:8px;overflow:hidden}.chat-header{background:#007bff;color:white;padding:15px;font-weight:bold}.chat-area{flex:1;padding:10px;overflow-y:auto;background:#fafafa}.message{margin:5px 0;padding:8px 12px;background:white;border-radius:8px}.system-message{background:#e3f2fd;color:#1976d2;font-style:italic}.input-area{display:flex;padding:10px;background:#f8f9fa}.input-area input{flex:1;padding:12px;border:1px solid #ddd;border-radius:4px 0 0 4px}.input-area button{padding:12px 20px;background:#007bff;color:white;border:none;border-radius:0 4px 4px 0;cursor:pointer}.rooms-list{max-height:200px;overflow-y:auto}.room-item{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #eee}.room-item button{padding:6px 12px;background:#28a745;color:white;border:none;border-radius:4px;cursor:pointer}</style></head><body>
-<div class="container">
-<div id="setup" class="setup">
+<div class=\"container\">
+<div id=\"setup\" class=\"setup\">
 <h3>FastAPI Video Chat</h3>
-<input type="text" id="username" placeholder="Enter username">
-<button onclick="createUser()">Create User</button>
-<input type="text" id="roomName" placeholder="Enter room name">
-<button onclick="createRoom()">Create Room</button>
-<button onclick="loadRooms()">Load Rooms</button>
-<div id="roomsList" class="rooms-list"></div>
+<input type=\"text\" id=\"username\" placeholder=\"Enter username\">
+<button onclick=\"createUser()\">Create User</button>
+<input type=\"text\" id=\"roomName\" placeholder=\"Enter room name\">
+<button onclick=\"createRoom()\">Create Room</button>
+<button onclick=\"loadRooms()\">Load Rooms</button>
+<div id=\"roomsList\" class=\"rooms-list\"></div>
 </div>
-<div id="chatInterface" class="chat-interface">
-<div class="chat-header"><span id="roomTitle">Chat Room</span></div>
-<div id="chatArea" class="chat-area"></div>
-<div class="input-area">
-<input type="text" id="messageInput" placeholder="Type message..." onkeypress="if(event.key==='Enter')sendMessage()">
-<button onclick="sendMessage()">Send</button>
+<div id=\"chatInterface\" class=\"chat-interface\">
+<div class=\"chat-header\"><span id=\"roomTitle\">Chat Room</span></div>
+<div id=\"chatArea\" class=\"chat-area\"></div>
+<div class=\"input-area\">
+<input type=\"text\" id=\"messageInput\" placeholder=\"Type message...\" onkeypress=\"if(event.key==='Enter')sendMessage()">
+<button onclick=\"sendMessage()\">Send</button>
 </div>
 </div>
 </div>
@@ -544,11 +575,18 @@ roomsList.innerHTML='<h4>Rooms:</h4>';
 rooms.forEach(room=>{
 const roomDiv=document.createElement('div');
 roomDiv.className='room-item';
-roomDiv.innerHTML='<span>'+room.name+'</span><button onclick="joinRoom(\\''+room.id+'\\',\\''+room.name+'\\')">Join</button>';
+roomDiv.innerHTML='<span>'+room.name+'</span><button onclick=\"joinRoom(\\''+room.id+'\\',\\''+room.name+'\\')\">Join</button>';
 roomsList.appendChild(roomDiv)})}
 async function joinRoom(roomId,roomName){
 if(!currentUser){alert('Create user first');return}
 currentRoom={id:roomId,name:roomName};
+try{
+const joinResponse=await fetch('/rooms/'+roomId+'/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:currentUser.id,username:currentUser.username})});
+if(!joinResponse.ok){
+const err=await joinResponse.json().catch(()=>({detail:'Unknown error'}));
+alert('Failed to join: '+err.detail);
+return}
+}catch(e){alert('Error: '+e.message);return}
 const wsProto=window.location.protocol==='https:'?'wss:':'ws:';
 const wsUrl=wsProto+'//'+window.location.host+'/ws/'+roomId+'/'+currentUser.id;
 ws=new WebSocket(wsUrl);
@@ -558,7 +596,9 @@ document.getElementById('chatInterface').style.display='flex';
 document.getElementById('roomTitle').textContent='Room: '+roomName;
 loadMessages()};
 ws.onmessage=function(event){displayMessage(JSON.parse(event.data))};
-ws.onerror=function(){alert('Connection error')}}
+ws.onerror=function(){alert('Connection error')};
+ws.onclose=function(e){if(e.code===4004)alert('Room/user not found')}
+}
 async function loadMessages(){
 const response=await fetch('/rooms/'+currentRoom.id+'/messages');
 const messages=await response.json();

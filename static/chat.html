@@ -219,22 +219,61 @@
       async function joinRoom(roomId,roomName){
         if(!currentUser){alert('Create user first');return}
         currentRoom={id:roomId,name:roomName};
+        
+        // ✅ FIXED: Properly check if join succeeds before connecting WebSocket
         try{
-          await fetch('/rooms/'+roomId+'/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:currentUser.id})})
-        }catch(error){console.error('Error joining room:',error)}
-  const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = wsProto + '//' + window.location.host + '/ws/' + encodeURIComponent(roomId) + '/' + encodeURIComponent(currentUser.id);
+          const joinResponse = await fetch('/rooms/'+roomId+'/join({
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({user_id:currentUser.id, username: currentUser.username})
+          });
+          
+          if (!joinResponse.ok) {
+            const errorData = await joinResponse.json().catch(() => ({detail: 'Unknown error'}));
+            alert('Failed to join room: ' + errorData.detail);
+            return; // ✅ Stop here if join fails
+          }
+          
+          console.log('✅ Successfully joined room');
+        }catch(error){
+          console.error('❌ Error joining room:',error);
+          alert('Failed to join room: ' + error.message);
+          return; // ✅ Stop here if request fails
+        }
+        
+        // ✅ Only connect WebSocket after successful join
+        const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = wsProto + '//' + window.location.host + '/ws/' + encodeURIComponent(roomId) + '/' + encodeURIComponent(currentUser.id);
+        
+        console.log('🔌 Connecting to WebSocket:', wsUrl);
         ws=new WebSocket(wsUrl);
+        
         ws.onopen=function(){
+          console.log('✅ WebSocket connected');
           document.getElementById('setup').style.display='none';
           document.getElementById('chatInterface').style.display='flex';
           document.getElementById('roomTitle').textContent='Room: '+roomName;
           showStatus('Connected');
           loadMessages()
         };
-        ws.onmessage=function(event){displayMessage(JSON.parse(event.data))};
-        ws.onclose=function(){showStatus('Disconnected')};
-        ws.onerror=function(){showStatus('Connection error')}
+        
+        ws.onmessage=function(event){
+          console.log('📨 Message received:', event.data);
+          displayMessage(JSON.parse(event.data))
+        };
+        
+        ws.onclose=function(event){
+          console.log('🔌 WebSocket closed:', event.code, event.reason);
+          showStatus('Disconnected');
+          if (event.code === 4004) {
+            alert('Connection closed: ' + (event.reason || 'Room or user not found'));
+          }
+        };
+        
+        ws.onerror=function(error){
+          console.error('❌ WebSocket error:', error);
+          showStatus('Connection error - check console for details');
+        }
       }
 
       async function loadMessages(){
