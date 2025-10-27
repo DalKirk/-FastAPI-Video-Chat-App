@@ -10,6 +10,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 from contextlib import asynccontextmanager
+from urllib.parse import parse_qs
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request, status
@@ -36,6 +37,12 @@ BUNNY_LIBRARY_ID = os.getenv("BUNNY_LIBRARY_ID")
 BUNNY_PULL_ZONE = os.getenv("BUNNY_PULL_ZONE")
 BUNNY_COLLECTION_ID = os.getenv("BUNNY_COLLECTION_ID", "")
 bunny_enabled = all([BUNNY_API_KEY, BUNNY_LIBRARY_ID, BUNNY_PULL_ZONE])
+
+# Deployment behavior toggles (safer defaults for production stateless environments)
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
+AUTO_CREATE_ON_WS_CONNECT = os.getenv("ALLOW_WEBSOCKET_AUTO_ROOMS", "true" if ENVIRONMENT == "production" else "false").lower() == "true"
+AUTO_CREATE_ON_JOIN = os.getenv("ALLOW_JOIN_AUTO_ROOMS", "true" if ENVIRONMENT == "production" else "false").lower() == "true"
+AUTO_USER_ON_JOIN = os.getenv("ALLOW_JOIN_AUTO_USERS", "true" if ENVIRONMENT == "production" else "false").lower() == "true"
 
 # Data Models
 class User(BaseModel):
@@ -73,6 +80,7 @@ class RoomCreate(BaseModel):
 
 class JoinRoomRequest(BaseModel):
     user_id: str
+    username: Optional[str] = None  # optional fallback for stateless envs
 
 # In-memory storage
 rooms: Dict[str, Room] = {}
@@ -241,7 +249,10 @@ async def debug_info():
         "bunny_enabled": bunny_enabled,
         "environment": os.getenv("ENVIRONMENT", "development"),
         "has_rooms": len(rooms) > 0,
-        "has_users": len(users) > 0
+        "has_users": len(users) > 0,
+        "auto_create_on_ws": AUTO_CREATE_ON_WS_CONNECT,
+        "auto_create_on_join": AUTO_CREATE_ON_JOIN,
+        "auto_user_on_join": AUTO_USER_ON_JOIN,
     }
 
 @app.get("/health")
@@ -318,10 +329,27 @@ def get_room_messages(room_id: str, limit: int = 50):
 
 @app.post("/rooms/{room_id}/join")
 def join_room(room_id: str, join_data: JoinRoomRequest):
+    # Optionally auto-create a room in production/stateless envs
     if room_id not in rooms:
-        raise HTTPException(status_code=404, detail="Room not found")
+        if AUTO_CREATE_ON_JOIN:
+            room = Room(id=room_id, name=f"Room {room_id[:8]}", created_at=datetime.now(timezone.utc))
+            rooms[room_id] = room
+            messages.setdefault(room_id, [])
+            room_live_streams.setdefault(room_id, [])
+            room_videos.setdefault(room_id, [])
+            logger.info(f"Auto-created room during join: {room_id}")
+        else:
+            raise HTTPException(status_code=404, detail="Room not found")
+
+    # Optionally auto-create user if not found and username provided
     if join_data.user_id not in users:
-        raise HTTPException(status_code=404, detail="User not found")
+        if AUTO_USER_ON_JOIN and join_data.username:
+            # Create user using provided id to preserve client state
+            user = User(id=join_data.user_id, username=join_data.username.strip(), joined_at=datetime.now(timezone.utc))
+            users[join_data.user_id] = user
+            logger.info(f"Auto-created user during join: {user.username} ({user.id})")
+        else:
+            raise HTTPException(status_code=404, detail="User not found")
 
     if join_data.user_id not in rooms[room_id].users:
         rooms[room_id].users.append(join_data.user_id)
@@ -368,12 +396,37 @@ async def list_room_videos(room_id: str):
 # WebSocket endpoint
 @app.websocket("/ws/{room_id}/{user_id}")
 async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
+    # Optionally auto-create missing room in production/stateless envs
     if room_id not in rooms:
-        await websocket.close(code=4004, reason="Room not found")
-        return
+        if AUTO_CREATE_ON_WS_CONNECT:
+            room = Room(id=room_id, name=f"Room {room_id[:8]}", created_at=datetime.now(timezone.utc))
+            rooms[room_id] = room
+            messages.setdefault(room_id, [])
+            room_live_streams.setdefault(room_id, [])
+            room_videos.setdefault(room_id, [])
+            logger.info(f"Auto-created room during websocket connect: {room_id}")
+        else:
+            await websocket.close(code=4004, reason="Room not found")
+            return
+
+    # If user isn't known, allow providing username via query string to auto-create in prod
     if user_id not in users:
-        await websocket.close(code=4004, reason="User not found")
-        return
+        try:
+            qs = parse_qs(websocket.scope.get("query_string", b"").decode())
+        except Exception:
+            qs = {}
+        provided_username = None
+        if isinstance(qs, dict):
+            values = qs.get("username")
+            if values:
+                provided_username = values[0]
+        if ENVIRONMENT == "production" and provided_username and len(provided_username.strip()) >= 2:
+            user = User(id=user_id, username=provided_username.strip(), joined_at=datetime.now(timezone.utc))
+            users[user_id] = user
+            logger.info(f"Auto-created user during websocket connect: {user.username} ({user.id})")
+        else:
+            await websocket.close(code=4004, reason="User not found")
+            return
 
     if user_id not in rooms[room_id].users:
         rooms[room_id].users.append(user_id)
