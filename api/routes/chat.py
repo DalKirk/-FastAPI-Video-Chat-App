@@ -28,8 +28,6 @@ async def chat_endpoint(
     """
     Accept flexible payloads and normalize to ChatRequest.
     Supports conversation_id for maintaining conversation history.
-    Derive message from message/prompt/text, messages[], or conversation_history[].
-    Normalize conversation_history entries to {username, content, timestamp}.
     """
     try:
         try:
@@ -37,8 +35,20 @@ async def chat_endpoint(
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid JSON body")
 
+        # ?? DEBUG: Log the entire body
+        logger.info("=" * 60)
+        logger.info("[DEBUG] CHAT ENDPOINT - REQUEST RECEIVED")
+        logger.info(f"[DEBUG] Full request body keys: {list(body.keys())}")
+        logger.info(f"[DEBUG] conversation_id in body: {body.get('conversation_id')}")
+        logger.info(f"[DEBUG] Full body: {body}")
+        logger.info("=" * 60)
+
         # Extract conversation_id if provided
         conversation_id = body.get("conversation_id")
+        
+        # ?? DEBUG: Log conversation_id extraction
+        logger.info(f"[DEBUG] Extracted conversation_id: {conversation_id}")
+        logger.info(f"[DEBUG] conversation_id type: {type(conversation_id)}")
 
         # 1) Derive message from preferred fields
         message: str = (body.get("message") or body.get("prompt") or body.get("text") or "").strip()
@@ -123,20 +133,51 @@ async def chat_endpoint(
             "conversation_history": normalized_history,
             "user_id": body.get("user_id"),
             "room_id": body.get("room_id"),
-            "conversation_id": conversation_id,  # NEW: Include conversation_id
+            "conversation_id": conversation_id,
         }
 
+        # ?? DEBUG: Log normalized payload
+        logger.info("=" * 60)
+        logger.info("[DEBUG] NORMALIZED PAYLOAD")
+        logger.info(f"[DEBUG] normalized_payload conversation_id: {normalized_payload.get('conversation_id')}")
+        logger.info(f"[DEBUG] normalized_payload keys: {list(normalized_payload.keys())}")
+        logger.info("=" * 60)
+
         chat_req = ChatRequest.model_validate(normalized_payload)
+        
+        # ?? DEBUG: Log ChatRequest model
+        logger.info("=" * 60)
+        logger.info("[DEBUG] CHAT REQUEST MODEL")
+        logger.info(f"[DEBUG] chat_req.conversation_id: {chat_req.conversation_id}")
+        logger.info(f"[DEBUG] chat_req.message: {chat_req.message[:80]}...")
+        logger.info(f"[DEBUG] chat_req.user_id: {chat_req.user_id}")
+        logger.info(f"[DEBUG] chat_req.room_id: {chat_req.room_id}")
+        logger.info("=" * 60)
+        
         logger.info("Chat request received: %s... (conversation_id: %s)", 
                    chat_req.message[:80], 
                    chat_req.conversation_id)
 
-        # NEW: Pass conversation_id to AI service
+        # ?? DEBUG: Before calling AI service
+        logger.info("=" * 60)
+        logger.info("[DEBUG] CALLING AI SERVICE")
+        logger.info(f"[DEBUG] Passing conversation_id to AI service: {chat_req.conversation_id}")
+        logger.info("=" * 60)
+
+        # Pass conversation_id to AI service
         response = await ai_service.generate_response(
             user_input=chat_req.message,
             history=chat_req.conversation_history,
-            conversation_id=chat_req.conversation_id  # NEW: Enable conversation tracking
+            conversation_id=chat_req.conversation_id
         )
+        
+        # ?? DEBUG: Log response
+        logger.info("=" * 60)
+        logger.info("[DEBUG] AI SERVICE RESPONSE")
+        logger.info(f"[DEBUG] Response conversation_id: {response.get('conversation_id')}")
+        logger.info(f"[DEBUG] Response conversation_length: {response.get('conversation_length')}")
+        logger.info(f"[DEBUG] Response success: {response.get('success')}")
+        logger.info("=" * 60)
         
         # Log conversation info
         if chat_req.conversation_id:
@@ -144,7 +185,16 @@ async def chat_endpoint(
                        chat_req.conversation_id,
                        response.get('conversation_length', 0))
         
-        return ChatResponse(**response)
+        chat_response = ChatResponse(**response)
+        
+        # ?? DEBUG: Log final response
+        logger.info("=" * 60)
+        logger.info("[DEBUG] FINAL RESPONSE")
+        logger.info(f"[DEBUG] ChatResponse.conversation_id: {chat_response.conversation_id}")
+        logger.info(f"[DEBUG] ChatResponse.conversation_length: {chat_response.conversation_length}")
+        logger.info("=" * 60)
+        
+        return chat_response
 
     except HTTPException:
         raise
@@ -168,7 +218,7 @@ async def chat_health_check():
         return {
             "status": "healthy",
             "claude_enabled": claude_client.is_enabled,
-            "active_conversations": active_conversations,  # NEW: Report active conversations
+            "active_conversations": active_conversations,
             "services": {
                 "context_analyzer": "ready",
                 "format_selector": "ready",
@@ -177,7 +227,7 @@ async def chat_health_check():
             "features": [
                 "context_aware_responses",
                 "markdown_formatting",
-                "conversation_history"  # NEW: Advertise conversation history support
+                "conversation_history"
             ]
         }
     except Exception as e:
@@ -185,7 +235,7 @@ async def chat_health_check():
         return {"status": "unhealthy", "error": str(e)}
 
 
-# NEW: Conversation management endpoints
+# Conversation management endpoints
 @router.post("/chat/conversation/clear")
 async def clear_chat_conversation(
     conversation_id: str,
