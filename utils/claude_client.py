@@ -2,7 +2,7 @@
 Claude AI Client for content moderation and AI features
 """
 import os
-from typing import Optional
+from typing import Optional, List, Dict
 from datetime import datetime
 import anthropic
 import logging
@@ -34,6 +34,7 @@ class ClaudeClient:
     - Smart replies
     - Message summarization
     - Spam detection
+    - Conversation history (NEW)
     """
     
     def __init__(self, api_key: Optional[str] = None):
@@ -41,6 +42,9 @@ class ClaudeClient:
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
         self.client = None
         self.active_model = CLAUDE_MODEL
+        # NEW: Store conversations by session/user ID
+        self.conversations: Dict[str, List[Dict]] = {}
+        
         if not self.api_key:
             logger.warning("Claude API key not found - AI features disabled")
         else:
@@ -65,11 +69,23 @@ class ClaudeClient:
         prompt: str,
         max_tokens: int = 1000,
         temperature: float = 0.7,
-        system_prompt: Optional[str] = None
+        system_prompt: Optional[str] = None,
+        conversation_id: Optional[str] = None  # NEW: Optional conversation tracking
     ) -> str:
         """
-        Generate a response from Claude.
-        Returns Claude's text exactly as provided by the SDK (no post-processing).
+        Generate a response from Claude with optional conversation history.
+        
+        Args:
+            prompt: User's message
+            max_tokens: Maximum tokens in response
+            temperature: Response randomness (0-1)
+            system_prompt: System instructions
+            conversation_id: Optional unique ID to maintain conversation history across calls
+        
+        Returns:
+            Claude's response text
+        
+        Note: Backward compatible - if conversation_id is not provided, works exactly as before
         """
         if not self.is_enabled:
             return "Claude AI is not configured. Add ANTHROPIC_API_KEY to enable AI features."
@@ -81,23 +97,44 @@ class ClaudeClient:
         else:
             full_system_prompt = f"{date_context}\n\nYou are a helpful AI assistant."
         
+        # NEW: Get or create conversation history
+        if conversation_id:
+            if conversation_id not in self.conversations:
+                self.conversations[conversation_id] = []
+            messages = self.conversations[conversation_id].copy()
+            # Add current user message
+            messages.append({"role": "user", "content": prompt})
+        else:
+            # Backward compatible: single message without history
+            messages = [{"role": "user", "content": prompt}]
+        
         try:
             message = self.client.messages.create(
                 model=self.active_model,
                 max_tokens=max_tokens,
                 temperature=temperature,
                 system=full_system_prompt,
-                messages=[
-                    {"role": "user", "content": prompt}
-                ]
+                messages=messages
             )
             response_text = message.content[0].text
-            logger.info(
-                "Claude response received (len=%d, spaces=%d)",
-                len(response_text),
-                response_text.count(" "),
-            )
-            # Pass-through: no formatting
+            
+            # NEW: Save conversation history if tracking is enabled
+            if conversation_id:
+                self.conversations[conversation_id].append({"role": "user", "content": prompt})
+                self.conversations[conversation_id].append({"role": "assistant", "content": response_text})
+                logger.info(
+                    "Claude response (len=%d, conversation=%s, history_len=%d)",
+                    len(response_text),
+                    conversation_id,
+                    len(self.conversations[conversation_id])
+                )
+            else:
+                logger.info(
+                    "Claude response received (len=%d, spaces=%d)",
+                    len(response_text),
+                    response_text.count(" "),
+                )
+            
             return response_text
             
         except anthropic.NotFoundError as e:
@@ -111,12 +148,16 @@ class ClaudeClient:
                     max_tokens=max_tokens,
                     temperature=temperature,
                     system=full_system_prompt,
-                    messages=[
-                        {"role": "user", "content": prompt}
-                    ]
+                    messages=messages
                 )
                 logger.info("✓ Switched to fallback model: %s", self.active_model)
                 response_text = message.content[0].text
+                
+                # NEW: Save to history if tracking
+                if conversation_id:
+                    self.conversations[conversation_id].append({"role": "user", "content": prompt})
+                    self.conversations[conversation_id].append({"role": "assistant", "content": response_text})
+                
                 return response_text
             except Exception as fallback_error:
                 logger.error("Fallback model also failed: %s", fallback_error)
@@ -134,10 +175,48 @@ class ClaudeClient:
             logger.error("Claude API error: %s", e)
             return f"Error generating response: {str(e)}"
     
+    # NEW: Conversation management methods
+    def clear_conversation(self, conversation_id: str) -> None:
+        """
+        Clear conversation history for a specific conversation ID.
+        
+        Args:
+            conversation_id: The conversation to clear
+        """
+        if conversation_id in self.conversations:
+            del self.conversations[conversation_id]
+            logger.info(f"Cleared conversation history for: {conversation_id}")
+    
+    def get_conversation_history(self, conversation_id: str) -> List[Dict]:
+        """
+        Get conversation history for a specific conversation ID.
+        
+        Args:
+            conversation_id: The conversation to retrieve
+            
+        Returns:
+            List of message dictionaries with 'role' and 'content'
+        """
+        return self.conversations.get(conversation_id, [])
+    
+    def get_conversation_count(self, conversation_id: str) -> int:
+        """
+        Get the number of messages in a conversation.
+        
+        Args:
+            conversation_id: The conversation to count
+            
+        Returns:
+            Number of messages (user + assistant)
+        """
+        return len(self.conversations.get(conversation_id, []))
+    
     def moderate_content(self, content: str) -> dict:
         """
         Moderate content for inappropriate material.
         Returns a JSON-compatible dict. On failure, fails open.
+        
+        Note: Does NOT use conversation history (each moderation is independent)
         """
         if not self.is_enabled:
             return {"is_safe": True, "reason": "Moderation disabled", "confidence": 0.0}
@@ -158,11 +237,13 @@ Respond ONLY with a JSON object:
 }"""
         
         try:
+            # No conversation_id - each moderation is independent
             response = self.generate_response(
                 prompt=f"Message to moderate: {content}",
                 max_tokens=200,
                 temperature=0.3,
-                system_prompt=system_prompt
+                system_prompt=system_prompt,
+                conversation_id=None
             )
             result = json.loads(response)
             return result
@@ -201,7 +282,8 @@ Respond ONLY with a JSON object:
         return {
             "active_model": self.active_model,
             "fallback_model": FALLBACK_MODEL,
-            "is_enabled": self.is_enabled
+            "is_enabled": self.is_enabled,
+            "active_conversations": len(self.conversations)  # NEW: Track conversation count
         }
 
 
