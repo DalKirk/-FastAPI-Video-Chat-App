@@ -19,16 +19,22 @@ class AIService:
         self.formatter = ResponseFormatter()
         self.claude_client = get_claude_client()
 
-    async def generate_response(self, user_input: str, history: List[Message]) -> Dict:
+    async def generate_response(
+        self, 
+        user_input: str, 
+        history: List[Message],
+        conversation_id: Optional[str] = None  # NEW: Optional conversation tracking
+    ) -> Dict:
         """
-        Main pipeline for generating formatted AI responses.
+        Main pipeline for generating formatted AI responses with optional conversation history.
         
         Args:
             user_input: The user's current message/query.
             history: List of previous Message objects in the conversation.
+            conversation_id: Optional unique ID to maintain conversation history across calls.
             
         Returns:
-            A dictionary containing the formatted response, format type, and metadata.
+            A dictionary containing the formatted response, format type, metadata, and conversation info.
         """
         try:
             # Step 1: Analyze conversation context
@@ -44,7 +50,8 @@ class AIService:
             raw_response = await self._generate_with_model(
                 user_input,
                 context,
-                format_rules
+                format_rules,
+                conversation_id=conversation_id  # NEW: Pass conversation_id
             )
 
             # Step 4: Convert plain text to proper markdown if needed
@@ -58,41 +65,56 @@ class AIService:
 
             # Step 6: Quality check
             if self._quality_check(formatted_response):
+                # NEW: Get conversation length if tracking
+                conversation_length = 0
+                if conversation_id and self.claude_client.is_enabled:
+                    conversation_length = self.claude_client.get_conversation_count(conversation_id)
+                
                 return {
                     'content': formatted_response,
                     'format_type': format_type.value,
                     'metadata': context,
-                    'success': True
+                    'success': True,
+                    'conversation_id': conversation_id,  # NEW
+                    'conversation_length': conversation_length  # NEW
                 }
 
             # Fallback if quality check fails
             logger.warning("Quality check failed, using fallback response")
-            return self._generate_fallback(user_input)
+            return self._generate_fallback(user_input, conversation_id=conversation_id)
 
         except Exception as e:
             logger.error(f"Error in generate_response: {e}", exc_info=True)
-            return self._generate_fallback(user_input, error=str(e))
+            return self._generate_fallback(user_input, error=str(e), conversation_id=conversation_id)
 
     async def _generate_with_model(
         self,
         user_input: str,
         context: Dict,
-        format_rules: Dict
+        format_rules: Dict,
+        conversation_id: Optional[str] = None  # NEW: Optional conversation tracking
     ) -> str:
         """
-        Generate raw AI response using Claude with explicit markdown instructions.
+        Generate raw AI response using Claude with explicit markdown instructions and optional conversation history.
         """
         # Build system prompt with explicit markdown formatting instructions
         system_prompt = self._build_markdown_system_prompt(context, format_rules)
 
-        # Use Claude client to generate response
+        # Use Claude client to generate response with optional conversation history
         if self.claude_client.is_enabled:
             raw_response = self.claude_client.generate_response(
                 prompt=user_input,
                 max_tokens=2048,
                 temperature=0.7,
-                system_prompt=system_prompt
+                system_prompt=system_prompt,
+                conversation_id=conversation_id  # NEW: Pass conversation_id to Claude
             )
+            
+            # Log conversation info
+            if conversation_id:
+                conv_length = self.claude_client.get_conversation_count(conversation_id)
+                logger.info(f"Generated response for conversation {conversation_id} (length: {conv_length})")
+            
             return raw_response
         else:
             logger.warning("Claude AI is not enabled, returning placeholder")
@@ -255,7 +277,12 @@ class AIService:
 
         return True
 
-    def _generate_fallback(self, user_input: str, error: Optional[str] = None) -> Dict:
+    def _generate_fallback(
+        self, 
+        user_input: str, 
+        error: Optional[str] = None,
+        conversation_id: Optional[str] = None  # NEW
+    ) -> Dict:
         """
         Generate a fallback response when the main pipeline fails.
         """
@@ -268,5 +295,7 @@ class AIService:
             'content': fallback_content,
             'format_type': FormatType.CONVERSATIONAL.value,
             'metadata': {'fallback': True, 'error': error},
-            'success': False
+            'success': False,
+            'conversation_id': conversation_id,  # NEW
+            'conversation_length': 0  # NEW
         }

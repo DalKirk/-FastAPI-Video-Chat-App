@@ -27,6 +27,7 @@ async def chat_endpoint(
 ):
     """
     Accept flexible payloads and normalize to ChatRequest.
+    Supports conversation_id for maintaining conversation history.
     Derive message from message/prompt/text, messages[], or conversation_history[].
     Normalize conversation_history entries to {username, content, timestamp}.
     """
@@ -35,6 +36,9 @@ async def chat_endpoint(
             body: Dict[str, Any] = await request.json()
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+        # Extract conversation_id if provided
+        conversation_id = body.get("conversation_id")
 
         # 1) Derive message from preferred fields
         message: str = (body.get("message") or body.get("prompt") or body.get("text") or "").strip()
@@ -119,15 +123,27 @@ async def chat_endpoint(
             "conversation_history": normalized_history,
             "user_id": body.get("user_id"),
             "room_id": body.get("room_id"),
+            "conversation_id": conversation_id,  # NEW: Include conversation_id
         }
 
         chat_req = ChatRequest.model_validate(normalized_payload)
-        logger.info("Chat request received: %s...", chat_req.message[:80])
+        logger.info("Chat request received: %s... (conversation_id: %s)", 
+                   chat_req.message[:80], 
+                   chat_req.conversation_id)
 
+        # NEW: Pass conversation_id to AI service
         response = await ai_service.generate_response(
             user_input=chat_req.message,
-            history=chat_req.conversation_history
+            history=chat_req.conversation_history,
+            conversation_id=chat_req.conversation_id  # NEW: Enable conversation tracking
         )
+        
+        # Log conversation info
+        if chat_req.conversation_id:
+            logger.info("Response generated for conversation %s (length: %d)", 
+                       chat_req.conversation_id,
+                       response.get('conversation_length', 0))
+        
         return ChatResponse(**response)
 
     except HTTPException:
@@ -141,15 +157,81 @@ async def chat_endpoint(
 async def chat_health_check():
     try:
         ai_service = get_ai_service()
+        claude_client = ai_service.claude_client
+        
+        # Get active conversation count
+        active_conversations = 0
+        if claude_client.is_enabled:
+            model_info = claude_client.get_model_info()
+            active_conversations = model_info.get("active_conversations", 0)
+        
         return {
             "status": "healthy",
-            "claude_enabled": ai_service.claude_client.is_enabled,
+            "claude_enabled": claude_client.is_enabled,
+            "active_conversations": active_conversations,  # NEW: Report active conversations
             "services": {
                 "context_analyzer": "ready",
                 "format_selector": "ready",
                 "response_formatter": "ready"
-            }
+            },
+            "features": [
+                "context_aware_responses",
+                "markdown_formatting",
+                "conversation_history"  # NEW: Advertise conversation history support
+            ]
         }
     except Exception as e:
         logger.error(f"Health check failed: {e}")
         return {"status": "unhealthy", "error": str(e)}
+
+
+# NEW: Conversation management endpoints
+@router.post("/chat/conversation/clear")
+async def clear_chat_conversation(
+    conversation_id: str,
+    ai_service: AIService = Depends(get_ai_service)
+):
+    """
+    Clear conversation history for a specific conversation ID.
+    
+    Example:
+        POST /api/v1/chat/conversation/clear?conversation_id=user_123
+    """
+    try:
+        if not ai_service.claude_client.is_enabled:
+            raise HTTPException(status_code=503, detail="AI features not configured")
+        
+        ai_service.claude_client.clear_conversation(conversation_id)
+        return {
+            "success": True,
+            "message": f"Conversation history cleared for: {conversation_id}"
+        }
+    except Exception as e:
+        logger.error(f"Failed to clear conversation: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/chat/conversation/{conversation_id}/history")
+async def get_chat_conversation_history(
+    conversation_id: str,
+    ai_service: AIService = Depends(get_ai_service)
+):
+    """
+    Get conversation history for a specific conversation ID.
+    
+    Example:
+        GET /api/v1/chat/conversation/user_123/history
+    """
+    try:
+        if not ai_service.claude_client.is_enabled:
+            raise HTTPException(status_code=503, detail="AI features not configured")
+        
+        history = ai_service.claude_client.get_conversation_history(conversation_id)
+        return {
+            "conversation_id": conversation_id,
+            "messages": history,
+            "message_count": len(history)
+        }
+    except Exception as e:
+        logger.error(f"Failed to get conversation history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

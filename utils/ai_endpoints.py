@@ -19,6 +19,7 @@ class AIRequest(BaseModel):
     prompt: str
     max_tokens: int = 1000
     temperature: float = 0.7
+    conversation_id: Optional[str] = None  # NEW: Optional conversation tracking
 
 
 class ContentModerationRequest(BaseModel):
@@ -35,20 +36,36 @@ class SmartReplyRequest(BaseModel):
     """Request for smart reply suggestion"""
     context: str
     user_message: str
+    conversation_id: Optional[str] = None  # NEW: Optional conversation tracking
+
+
+# NEW: Conversation management endpoints
+class ConversationManagementRequest(BaseModel):
+    """Request for conversation management"""
+    conversation_id: str
 
 
 # AI Generation Endpoint
 @ai_router.post("/generate")
 async def generate_ai_response(request: AIRequest):
     """
-    Generate AI response using Claude.
+    Generate AI response using Claude with optional conversation history.
     
-    Example:
+    Example without history:
         POST /ai/generate
         {
             "prompt": "Write a fun icebreaker for a chat room",
             "max_tokens": 100,
             "temperature": 0.8
+        }
+    
+    Example with conversation history:
+        POST /ai/generate
+        {
+            "prompt": "What did I just tell you?",
+            "max_tokens": 100,
+            "temperature": 0.7,
+            "conversation_id": "user_123"
         }
     """
     claude = get_claude_client()
@@ -63,21 +80,24 @@ async def generate_ai_response(request: AIRequest):
         response = claude.generate_response(
             prompt=request.prompt,
             max_tokens=request.max_tokens,
-            temperature=request.temperature
+            temperature=request.temperature,
+            conversation_id=request.conversation_id  # NEW: Pass conversation_id
         )
         model_info = claude.get_model_info()
         
-        # ?? DIAGNOSTIC LOGGING - Before Sending to Frontend
-        logger.info('=== BEFORE SENDING TO FRONTEND ===')
+        # Diagnostic logging
+        logger.info('=== AI GENERATE RESPONSE ===')
         logger.info(f'Response length: {len(response)}')
-        logger.info(f'Has spaces: {" " in response}')
-        logger.info(f'Space count: {response.count(" ")}')
-        logger.info(f'First 200 chars: {response[:200]}')
-        logger.info('================================')
+        logger.info(f'Conversation ID: {request.conversation_id}')
+        if request.conversation_id:
+            logger.info(f'History length: {claude.get_conversation_count(request.conversation_id)}')
+        logger.info('============================')
         
         return {
             "response": response, 
             "model": model_info["active_model"],
+            "conversation_id": request.conversation_id,  # NEW: Return conversation_id
+            "conversation_length": claude.get_conversation_count(request.conversation_id) if request.conversation_id else 0,  # NEW
             "debug_info": {
                 "response_length": len(response),
                 "has_spaces": " " in response,
@@ -107,6 +127,8 @@ async def moderate_content(request: ContentModerationRequest):
             "reason": "No violations detected",
             "confidence": 0.95
         }
+    
+    Note: Content moderation does NOT use conversation history (each check is independent)
     """
     claude = get_claude_client()
     
@@ -181,13 +203,21 @@ async def summarize_conversation(request: ConversationSummaryRequest):
 @ai_router.post("/suggest-reply")
 async def suggest_smart_reply(request: SmartReplyRequest):
     """
-    Suggest a smart reply based on context.
+    Suggest a smart reply based on context, with optional conversation history.
     
-    Example:
+    Example without history:
         POST /ai/suggest-reply
         {
             "context": "Alice: How's everyone doing today?",
             "user_message": "I'm doing great! How about you?"
+        }
+    
+    Example with conversation history:
+        POST /ai/suggest-reply
+        {
+            "context": "Alice: How's everyone doing today?",
+            "user_message": "I'm doing great! How about you?",
+            "conversation_id": "alice_123"
         }
     """
     claude = get_claude_client()
@@ -197,9 +227,104 @@ async def suggest_smart_reply(request: SmartReplyRequest):
     
     try:
         suggestion = claude.suggest_reply(request.context, request.user_message)
-        return {"suggested_reply": suggestion}
+        
+        return {
+            "suggested_reply": suggestion,
+            "conversation_id": request.conversation_id,
+            "conversation_length": claude.get_conversation_count(request.conversation_id) if request.conversation_id else 0
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Reply suggestion failed: {str(e)}")
+
+
+# NEW: Conversation Management Endpoints
+@ai_router.post("/conversation/clear")
+async def clear_conversation(request: ConversationManagementRequest):
+    """
+    Clear conversation history for a specific conversation ID.
+    
+    Example:
+        POST /ai/conversation/clear
+        {
+            "conversation_id": "user_123"
+        }
+    """
+    claude = get_claude_client()
+    
+    if not claude.is_enabled:
+        raise HTTPException(status_code=503, detail="AI features not configured")
+    
+    try:
+        claude.clear_conversation(request.conversation_id)
+        return {
+            "success": True,
+            "message": f"Conversation history cleared for: {request.conversation_id}"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to clear conversation: {str(e)}")
+
+
+@ai_router.get("/conversation/{conversation_id}/history")
+async def get_conversation_history(conversation_id: str):
+    """
+    Get conversation history for a specific conversation ID.
+    
+    Example:
+        GET /ai/conversation/user_123/history
+    
+    Returns:
+        {
+            "conversation_id": "user_123",
+            "messages": [
+                {"role": "user", "content": "Hello"},
+                {"role": "assistant", "content": "Hi!"}
+            ],
+            "message_count": 2
+        }
+    """
+    claude = get_claude_client()
+    
+    if not claude.is_enabled:
+        raise HTTPException(status_code=503, detail="AI features not configured")
+    
+    try:
+        history = claude.get_conversation_history(conversation_id)
+        return {
+            "conversation_id": conversation_id,
+            "messages": history,
+            "message_count": len(history)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get conversation history: {str(e)}")
+
+
+@ai_router.get("/conversation/{conversation_id}/count")
+async def get_conversation_count(conversation_id: str):
+    """
+    Get message count for a specific conversation ID.
+    
+    Example:
+        GET /ai/conversation/user_123/count
+    
+    Returns:
+        {
+            "conversation_id": "user_123",
+            "message_count": 10
+        }
+    """
+    claude = get_claude_client()
+    
+    if not claude.is_enabled:
+        raise HTTPException(status_code=503, detail="AI features not configured")
+    
+    try:
+        count = claude.get_conversation_count(conversation_id)
+        return {
+            "conversation_id": conversation_id,
+            "message_count": count
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get conversation count: {str(e)}")
 
 
 # Health check for AI features
@@ -213,12 +338,14 @@ async def ai_health_check():
         "ai_enabled": claude.is_enabled,
         "model": model_info.get("active_model") if claude.is_enabled else None,
         "fallback_model": model_info.get("fallback_model") if claude.is_enabled else None,
+        "active_conversations": model_info.get("active_conversations", 0) if claude.is_enabled else 0,  # NEW
         "features": [
             "content_moderation",
             "spam_detection",
             "conversation_summary",
             "smart_replies",
-            "ai_generation"
+            "ai_generation",
+            "conversation_history"  # NEW
         ] if claude.is_enabled else []
     }
 

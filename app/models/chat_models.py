@@ -30,6 +30,7 @@ class ChatRequest(BaseModel):
     conversation_history: List[Message] = []
     user_id: Optional[str] = None
     room_id: Optional[str] = None
+    conversation_id: Optional[str] = None  # NEW: Optional conversation tracking
 
 
 class ChatResponse(BaseModel):
@@ -38,3 +39,5 @@ class ChatResponse(BaseModel):
     format_type: str
     metadata: Dict
     success: bool = True
+    conversation_id: Optional[str] = None  # NEW: Return conversation_id
+    conversation_length: int = 0  # NEW: Number of messages in conversation
