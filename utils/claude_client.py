@@ -7,7 +7,6 @@ from datetime import datetime
 import anthropic
 import logging
 import json
-import re
 
 logger = logging.getLogger(__name__)
 
@@ -17,24 +16,16 @@ CLAUDE_MODEL = "claude-sonnet-4-5-20250929"  # Latest Claude 4.5 Sonnet
 FALLBACK_MODEL = "claude-3-5-sonnet-20241022"  # Fallback to Claude 3.5 if 4.5 unavailable
 
 
-def format_text(text: str) -> str:
-    """
-    Legacy formatter (unused by streaming and non-streaming paths now).
-    Kept for backward compatibility; returns text unchanged.
-    """
-    return text
-
-
 class ClaudeClient:
     """
-    Client for Claude AI API integration using Anthropic SDK.
+    Client for Claude AI API integration with conversation history.
     
     Features:
     - Content moderation
     - Smart replies
     - Message summarization
     - Spam detection
-    - Conversation history (NEW)
+    - Conversation history
     """
     
     def __init__(self, api_key: Optional[str] = None):
@@ -42,7 +33,7 @@ class ClaudeClient:
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
         self.client = None
         self.active_model = CLAUDE_MODEL
-        # NEW: Store conversations by session/user ID
+        # Store conversations by session/user ID
         self.conversations: Dict[str, List[Dict]] = {}
         
         if not self.api_key:
@@ -70,17 +61,17 @@ class ClaudeClient:
         max_tokens: int = 1000,
         temperature: float = 0.7,
         system_prompt: Optional[str] = None,
-        conversation_id: Optional[str] = None  # NEW: Optional conversation tracking
+        conversation_id: Optional[str] = None
     ) -> str:
         """
-        Generate a response from Claude with optional conversation history.
+        Generate a response from Claude with conversation history.
         
         Args:
             prompt: User's message
             max_tokens: Maximum tokens in response
             temperature: Response randomness (0-1)
             system_prompt: System instructions
-            conversation_id: Optional unique ID to maintain conversation history across calls
+            conversation_id: Unique ID to maintain conversation history
         
         Returns:
             Claude's response text
@@ -97,16 +88,16 @@ class ClaudeClient:
         else:
             full_system_prompt = f"{date_context}\n\nYou are a helpful AI assistant."
         
-        # NEW: Get or create conversation history
+        # Get or create conversation history
         if conversation_id:
             if conversation_id not in self.conversations:
                 self.conversations[conversation_id] = []
             messages = self.conversations[conversation_id].copy()
-            # Add current user message
-            messages.append({"role": "user", "content": prompt})
         else:
-            # Backward compatible: single message without history
-            messages = [{"role": "user", "content": prompt}]
+            messages = []
+        
+        # Add current user message
+        messages.append({"role": "user", "content": prompt})
         
         try:
             message = self.client.messages.create(
@@ -118,29 +109,24 @@ class ClaudeClient:
             )
             response_text = message.content[0].text
             
-            # NEW: Save conversation history if tracking is enabled
+            # Save assistant response to history
             if conversation_id:
-                self.conversations[conversation_id].append({"role": "user", "content": prompt})
-                self.conversations[conversation_id].append({"role": "assistant", "content": response_text})
-                logger.info(
-                    "Claude response (len=%d, conversation=%s, history_len=%d)",
-                    len(response_text),
-                    conversation_id,
-                    len(self.conversations[conversation_id])
+                self.conversations[conversation_id].append(
+                    {"role": "user", "content": prompt}
                 )
-            else:
-                logger.info(
-                    "Claude response received (len=%d, spaces=%d)",
-                    len(response_text),
-                    response_text.count(" "),
+                self.conversations[conversation_id].append(
+                    {"role": "assistant", "content": response_text}
                 )
             
+            logger.info(
+                "Claude response received (len=%d, history_length=%d)",
+                len(response_text),
+                len(self.conversations.get(conversation_id, []))
+            )
             return response_text
             
         except anthropic.NotFoundError as e:
-            # Model not found - try fallback
             logger.warning("Model %s not found, trying fallback: %s", self.active_model, FALLBACK_MODEL)
-            logger.error("Original error: %s", e)
             try:
                 self.active_model = FALLBACK_MODEL
                 message = self.client.messages.create(
@@ -150,14 +136,18 @@ class ClaudeClient:
                     system=full_system_prompt,
                     messages=messages
                 )
-                logger.info("✓ Switched to fallback model: %s", self.active_model)
                 response_text = message.content[0].text
                 
-                # NEW: Save to history if tracking
+                # Save to history
                 if conversation_id:
-                    self.conversations[conversation_id].append({"role": "user", "content": prompt})
-                    self.conversations[conversation_id].append({"role": "assistant", "content": response_text})
+                    self.conversations[conversation_id].append(
+                        {"role": "user", "content": prompt}
+                    )
+                    self.conversations[conversation_id].append(
+                        {"role": "assistant", "content": response_text}
+                    )
                 
+                logger.info("✓ Switched to fallback model: %s", self.active_model)
                 return response_text
             except Exception as fallback_error:
                 logger.error("Fallback model also failed: %s", fallback_error)
@@ -175,40 +165,18 @@ class ClaudeClient:
             logger.error("Claude API error: %s", e)
             return f"Error generating response: {str(e)}"
     
-    # NEW: Conversation management methods
     def clear_conversation(self, conversation_id: str) -> None:
-        """
-        Clear conversation history for a specific conversation ID.
-        
-        Args:
-            conversation_id: The conversation to clear
-        """
+        """Clear conversation history for a specific conversation ID"""
         if conversation_id in self.conversations:
             del self.conversations[conversation_id]
             logger.info(f"Cleared conversation history for: {conversation_id}")
     
     def get_conversation_history(self, conversation_id: str) -> List[Dict]:
-        """
-        Get conversation history for a specific conversation ID.
-        
-        Args:
-            conversation_id: The conversation to retrieve
-            
-        Returns:
-            List of message dictionaries with 'role' and 'content'
-        """
+        """Get conversation history for a specific conversation ID"""
         return self.conversations.get(conversation_id, [])
     
     def get_conversation_count(self, conversation_id: str) -> int:
-        """
-        Get the number of messages in a conversation.
-        
-        Args:
-            conversation_id: The conversation to count
-            
-        Returns:
-            Number of messages (user + assistant)
-        """
+        """Get the number of messages in a conversation"""
         return len(self.conversations.get(conversation_id, []))
     
     def moderate_content(self, content: str) -> dict:
@@ -237,13 +205,13 @@ Respond ONLY with a JSON object:
 }"""
         
         try:
-            # No conversation_id - each moderation is independent
+            # Don't use conversation history for moderation
             response = self.generate_response(
                 prompt=f"Message to moderate: {content}",
                 max_tokens=200,
                 temperature=0.3,
                 system_prompt=system_prompt,
-                conversation_id=None
+                conversation_id=None  # No history for moderation
             )
             result = json.loads(response)
             return result
@@ -283,7 +251,7 @@ Respond ONLY with a JSON object:
             "active_model": self.active_model,
             "fallback_model": FALLBACK_MODEL,
             "is_enabled": self.is_enabled,
-            "active_conversations": len(self.conversations)  # NEW: Track conversation count
+            "active_conversations": len(self.conversations)
         }
 
 
