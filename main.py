@@ -21,6 +21,7 @@ from middleware.rate_limit import RateLimitMiddleware, RateLimitConfig
 
 from utils.streaming_ai_endpoints import streaming_ai_router
 from api.routes.chat import router as chat_router
+from api.routes.vision import router as vision_router  # NEW: Vision API
 
 load_dotenv()
 
@@ -213,6 +214,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 app.include_router(streaming_ai_router)
 app.include_router(chat_router)
+app.include_router(vision_router)  # NEW: Vision API routes
 
 @app.get("/ai/health")
 async def ai_health_redirect():
