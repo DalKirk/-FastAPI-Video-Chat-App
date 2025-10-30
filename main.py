@@ -159,6 +159,7 @@ allowed_origins = [
     "http://localhost:3000",
     "http://localhost:3001",
     "https://localhost:3000",
+    "https://claude.ai",  # Claude Artifacts support
     "https://next-js-14-front-end-for-chat-plast.vercel.app",
     "https://next-js-14-front-end-for-chat-plast-kappa.vercel.app",
     "https://video-chat-frontend-ruby.vercel.app",
