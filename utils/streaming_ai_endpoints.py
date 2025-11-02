@@ -10,7 +10,6 @@ from utils.claude_client import get_claude_client
 import json
 import anthropic
 import logging
-import re
 
 # Create router for streaming AI endpoints
 streaming_ai_router = APIRouter(prefix="/ai/stream", tags=["AI Streaming"])
@@ -32,49 +31,12 @@ class StreamGenerateRequest(BaseModel):
     system_prompt: Optional[str] = None
 
 
-def _restore_newlines(chunk: str, prev_last: Optional[str]) -> (str, Optional[str]):
-    """Aggressively restore newlines without changing punctuation or spacing.
-    - Convert literal escape sequences (\\r\\n, \\n, \\t)
-    - Normalize to \n
-    - Ensure code fences ``` start and end on their own line
-    - If a chunk begins with ``` and the previous char wasn't a newline, prepend one
-    """
-    if not chunk:
-        return chunk, prev_last
-
-    # 1) Decode common escaped sequences that may arrive literally
-    #    (e.g., "\n" -> newline)
-    if "\\r\\n" in chunk:
-        chunk = chunk.replace("\\r\\n", "\r\n")
-    if "\\n" in chunk:
-        chunk = chunk.replace("\\n", "\n")
-    if "\\t" in chunk:
-        chunk = chunk.replace("\\t", "\t")
-
-    # 2) Normalize newlines to \n
-    chunk = chunk.replace("\r\n", "\n").replace("\r", "\n")
-
-    # 3) Ensure code fences are on their own line
-    #    Add a newline before a ``` that doesn't start at line-begin
-    chunk = re.sub(r"(?<!\n)```", "\n```", chunk)
-    #    Add a newline after a ``` that isn't followed by a newline
-    chunk = re.sub(r"```(?!\n)", "```\n", chunk)
-
-    # 4) If the chunk starts with a fence and previous wasn't a newline, prepend newline
-    if chunk.startswith("```") and prev_last not in (None, "\n"):
-        chunk = "\n" + chunk
-
-    # Update trailing state
-    new_prev_last = chunk[-1] if chunk else prev_last
-    return chunk, new_prev_last
-
-
 # Streaming Chat Endpoint (Multi-turn conversations)
 @streaming_ai_router.post("/chat")
 async def stream_chat(request: StreamChatRequest):
     """
     Stream Claude chat responses using Server-Sent Events (SSE).
-    Newlines are aggressively restored, but punctuation and intra-token spacing are untouched.
+    Claude's markdown output is passed through directly without modification.
     """
     claude = get_claude_client()
 
@@ -86,20 +48,16 @@ async def stream_chat(request: StreamChatRequest):
 
     async def generate():
         try:
-            # Optional guidance to include language identifiers in code fences
+            # Build system prompt with date context
             system_prompt = request.system or ""
-            guidance = (
-                "When including code, wrap it in triple backticks with a language identifier"
-                " (e.g., ```python) and preserve whitespace/newlines exactly."
-            )
             if system_prompt:
                 date_context = claude._get_current_date_context()
-                system_prompt = f"{date_context}\n\n{system_prompt}\n\n{guidance}"
+                system_prompt = f"{date_context}\n\n{system_prompt}"
             else:
                 date_context = claude._get_current_date_context()
-                system_prompt = f"{date_context}\n\nYou are a helpful AI assistant. {guidance}"
+                system_prompt = f"{date_context}\n\nYou are a helpful AI assistant."
 
-            prev_last: Optional[str] = None
+            # Stream Claude's response directly without modification
             with claude.client.messages.stream(
                 model=claude.active_model,
                 max_tokens=request.max_tokens,
@@ -108,8 +66,8 @@ async def stream_chat(request: StreamChatRequest):
                 messages=request.messages,
             ) as stream:
                 for text in stream.text_stream:
+                    # Pass Claude's output directly - no modification needed
                     chunk = text or ""
-                    chunk, prev_last = _restore_newlines(chunk, prev_last)
                     yield f"data: {json.dumps({'text': chunk, 'type': 'content'})}\n\n"
 
             yield f"data: {json.dumps({'type': 'done', 'model': claude.active_model})}\n\n"
@@ -137,7 +95,7 @@ async def stream_chat(request: StreamChatRequest):
 async def stream_generate(request: StreamGenerateRequest):
     """
     Stream Claude AI generation using Server-Sent Events (SSE).
-    Newlines are aggressively restored, but punctuation and intra-token spacing are untouched.
+    Claude's markdown output is passed through directly without modification.
     """
     claude = get_claude_client()
 
@@ -149,19 +107,16 @@ async def stream_generate(request: StreamGenerateRequest):
 
     async def generate():
         try:
+            # Build system prompt with date context
             date_context = claude._get_current_date_context()
-            guidance = (
-                "When including code, wrap it in triple backticks with a language identifier"
-                " (e.g., ```python) and preserve whitespace/newlines exactly."
-            )
             if request.system_prompt:
-                system_prompt = f"{date_context}\n\n{request.system_prompt}\n\n{guidance}"
+                system_prompt = f"{date_context}\n\n{request.system_prompt}"
             else:
-                system_prompt = f"{date_context}\n\nYou are a helpful AI assistant. {guidance}"
+                system_prompt = f"{date_context}\n\nYou are a helpful AI assistant."
 
             messages = [{"role": "user", "content": request.prompt}]
 
-            prev_last: Optional[str] = None
+            # Stream Claude's response directly without modification
             with claude.client.messages.stream(
                 model=claude.active_model,
                 max_tokens=request.max_tokens,
@@ -170,8 +125,8 @@ async def stream_generate(request: StreamGenerateRequest):
                 messages=messages,
             ) as stream:
                 for text in stream.text_stream:
+                    # Pass Claude's output directly - no modification needed
                     chunk = text or ""
-                    chunk, prev_last = _restore_newlines(chunk, prev_last)
                     yield f"data: {json.dumps({'text': chunk, 'type': 'content'})}\n\n"
 
             yield f"data: {json.dumps({'type': 'done', 'model': claude.active_model})}\n\n"
@@ -180,7 +135,6 @@ async def stream_generate(request: StreamGenerateRequest):
             # Fallback to backup model
             try:
                 claude.active_model = claude.get_model_info()["fallback_model"]
-                prev_last = None
                 with claude.client.messages.stream(
                     model=claude.active_model,
                     max_tokens=request.max_tokens,
@@ -190,7 +144,6 @@ async def stream_generate(request: StreamGenerateRequest):
                 ) as stream:
                     for text in stream.text_stream:
                         chunk = text or ""
-                        chunk, prev_last = _restore_newlines(chunk, prev_last)
                         yield f"data: {json.dumps({'text': chunk, 'type': 'content'})}\n\n"
                 yield f"data: {json.dumps({'type': 'done', 'model': claude.active_model, 'fallback': True})}\n\n"
             except Exception as fallback_error:
@@ -222,7 +175,7 @@ async def streaming_health_check():
         "model": claude.active_model if claude.is_enabled else None,
         "supports_streaming": True,
         "format": "Server-Sent Events (SSE)",
-        "text_formatting": "newline restoration only",
+        "text_formatting": "raw Claude output (unmodified)",
     }
 
 
