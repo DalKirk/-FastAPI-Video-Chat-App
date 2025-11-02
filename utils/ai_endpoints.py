@@ -19,7 +19,8 @@ class AIRequest(BaseModel):
     prompt: str
     max_tokens: int = 1000
     temperature: float = 0.7
-    conversation_id: Optional[str] = None  # NEW: Optional conversation tracking
+    conversation_id: Optional[str] = None  # Optional conversation tracking
+    enable_search: bool = True  # NEW: Enable/disable web search
 
 
 class ContentModerationRequest(BaseModel):
@@ -49,7 +50,7 @@ class ConversationManagementRequest(BaseModel):
 @ai_router.post("/generate")
 async def generate_ai_response(request: AIRequest):
     """
-    Generate AI response using Claude with optional conversation history.
+    Generate AI response using Claude with optional conversation history and web search.
     
     Example without history:
         POST /ai/generate
@@ -67,6 +68,16 @@ async def generate_ai_response(request: AIRequest):
             "temperature": 0.7,
             "conversation_id": "user_123"
         }
+    
+    Example with web search:
+        POST /ai/generate
+        {
+            "prompt": "What's the latest news on AI?",
+            "max_tokens": 200,
+            "temperature": 0.7,
+            "conversation_id": "user_123",
+            "enable_search": true
+        }
     """
     claude = get_claude_client()
     
@@ -77,11 +88,12 @@ async def generate_ai_response(request: AIRequest):
         )
     
     try:
-        response = claude.generate_response(
+        response = await claude.generate_response(
             prompt=request.prompt,
             max_tokens=request.max_tokens,
             temperature=request.temperature,
-            conversation_id=request.conversation_id  # NEW: Pass conversation_id
+            conversation_id=request.conversation_id,
+            enable_search=request.enable_search  # NEW: Pass enable_search flag
         )
         model_info = claude.get_model_info()
         
@@ -89,6 +101,7 @@ async def generate_ai_response(request: AIRequest):
         logger.info('=== AI GENERATE RESPONSE ===')
         logger.info(f'Response length: {len(response)}')
         logger.info(f'Conversation ID: {request.conversation_id}')
+        logger.info(f'Search enabled: {request.enable_search}')  # NEW: Log search status
         if request.conversation_id:
             logger.info(f'History length: {claude.get_conversation_count(request.conversation_id)}')
         logger.info('============================')
@@ -96,8 +109,9 @@ async def generate_ai_response(request: AIRequest):
         return {
             "response": response, 
             "model": model_info["active_model"],
-            "conversation_id": request.conversation_id,  # NEW: Return conversation_id
-            "conversation_length": claude.get_conversation_count(request.conversation_id) if request.conversation_id else 0,  # NEW
+            "search_enabled": claude.is_search_enabled,  # NEW: Return search status
+            "conversation_id": request.conversation_id,
+            "conversation_length": claude.get_conversation_count(request.conversation_id) if request.conversation_id else 0,
             "debug_info": {
                 "response_length": len(response),
                 "has_spaces": " " in response,
@@ -193,7 +207,7 @@ async def summarize_conversation(request: ConversationSummaryRequest):
         raise HTTPException(status_code=503, detail="AI features not configured")
     
     try:
-        summary = claude.summarize_conversation(request.messages)
+        summary = await claude.summarize_conversation(request.messages)
         return {"summary": summary}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Summarization failed: {str(e)}")
@@ -226,7 +240,7 @@ async def suggest_smart_reply(request: SmartReplyRequest):
         raise HTTPException(status_code=503, detail="AI features not configured")
     
     try:
-        suggestion = claude.suggest_reply(request.context, request.user_message)
+        suggestion = await claude.suggest_reply(request.context, request.user_message)
         
         return {
             "suggested_reply": suggestion,
@@ -336,16 +350,18 @@ async def ai_health_check():
     
     return {
         "ai_enabled": claude.is_enabled,
+        "search_enabled": claude.is_search_enabled if claude.is_enabled else False,  # NEW: Search status
         "model": model_info.get("active_model") if claude.is_enabled else None,
         "fallback_model": model_info.get("fallback_model") if claude.is_enabled else None,
-        "active_conversations": model_info.get("active_conversations", 0) if claude.is_enabled else 0,  # NEW
+        "active_conversations": model_info.get("active_conversations", 0) if claude.is_enabled else 0,
         "features": [
             "content_moderation",
             "spam_detection",
             "conversation_summary",
             "smart_replies",
             "ai_generation",
-            "conversation_history"  # NEW
+            "conversation_history",
+            "web_search"  # NEW: Web search feature
         ] if claude.is_enabled else []
     }
 

@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class AIService:
-    """Main service that orchestrates AI response generation with context-aware formatting."""
+    """Main service that orchestrates AI response generation with context-aware formatting and web search."""
 
     def __init__(self):
         self.context_analyzer = ContextAnalyzer()
@@ -23,15 +23,17 @@ class AIService:
         self, 
         user_input: str, 
         history: List[Message],
-        conversation_id: Optional[str] = None  # NEW: Optional conversation tracking
+        conversation_id: Optional[str] = None,
+        enable_search: bool = True  # NEW: Option to enable/disable search
     ) -> Dict:
         """
-        Main pipeline for generating formatted AI responses with optional conversation history.
+        Main pipeline for generating formatted AI responses with optional conversation history and web search.
         
         Args:
             user_input: The user's current message/query.
             history: List of previous Message objects in the conversation.
             conversation_id: Optional unique ID to maintain conversation history across calls.
+            enable_search: Whether to enable automatic web search for current events.
             
         Returns:
             A dictionary containing the formatted response, format type, metadata, and conversation info.
@@ -46,12 +48,13 @@ class AIService:
             format_rules = self.format_selector.get_format_rules(format_type)
             logger.info(f"Selected format: {format_type.value}, rules: {format_rules}")
 
-            # Step 3: Generate raw content using Claude AI with markdown guidance
+            # Step 3: Generate raw content using Claude AI with markdown guidance and search
             raw_response = await self._generate_with_model(
                 user_input,
                 context,
                 format_rules,
-                conversation_id=conversation_id  # NEW: Pass conversation_id
+                conversation_id=conversation_id,
+                enable_search=enable_search  # NEW: Pass search flag
             )
 
             # Step 4: Convert plain text to proper markdown if needed
@@ -65,7 +68,7 @@ class AIService:
 
             # Step 6: Quality check
             if self._quality_check(formatted_response):
-                # NEW: Get conversation length if tracking
+                # Get conversation length if tracking
                 conversation_length = 0
                 if conversation_id and self.claude_client.is_enabled:
                     conversation_length = self.claude_client.get_conversation_count(conversation_id)
@@ -75,8 +78,8 @@ class AIService:
                     'format_type': format_type.value,
                     'metadata': context,
                     'success': True,
-                    'conversation_id': conversation_id,  # NEW
-                    'conversation_length': conversation_length  # NEW
+                    'conversation_id': conversation_id,
+                    'conversation_length': conversation_length
                 }
 
             # Fallback if quality check fails
@@ -92,22 +95,25 @@ class AIService:
         user_input: str,
         context: Dict,
         format_rules: Dict,
-        conversation_id: Optional[str] = None  # NEW: Optional conversation tracking
+        conversation_id: Optional[str] = None,
+        enable_search: bool = True  # NEW: Search flag
     ) -> str:
         """
-        Generate raw AI response using Claude with explicit markdown instructions and optional conversation history.
+        Generate raw AI response using Claude with explicit markdown instructions, 
+        conversation history, and optional web search.
         """
         # Build system prompt with explicit markdown formatting instructions
         system_prompt = self._build_markdown_system_prompt(context, format_rules)
 
-        # Use Claude client to generate response with optional conversation history
+        # Use Claude client to generate response with optional conversation history and search
         if self.claude_client.is_enabled:
-            raw_response = self.claude_client.generate_response(
+            raw_response = await self.claude_client.generate_response(
                 prompt=user_input,
                 max_tokens=2048,
                 temperature=0.7,
                 system_prompt=system_prompt,
-                conversation_id=conversation_id  # NEW: Pass conversation_id to Claude
+                conversation_id=conversation_id,
+                enable_search=enable_search  # NEW: Enable web search
             )
             
             # Log conversation info
@@ -198,7 +204,6 @@ class AIService:
                 continue
 
             # Convert numbered patterns to markdown lists
-            # Match: "1.", "First,", "Second,", etc.
             numbered_pattern = r'^(\d+\.|\d+\))\s*(.+)$'
             word_number_pattern = r'^(First|Second|Third|Fourth|Fifth|Sixth|Seventh|Eighth|Ninth|Tenth)[,:]?\s*(.+)$'
 
@@ -212,17 +217,16 @@ class AIService:
                 word = word_match.group(1)
                 content_part = word_match.group(2)
                 formatted_lines.append(f"- **{word}**: {content_part}")
-            # Detect potential headers (short, title-case, no ending punctuation)
+            # Detect potential headers
             elif (len(stripped) < 60 and 
                   stripped[0].isupper() and 
                   not stripped.endswith(('.', '!', '?', ',')) and
                   format_rules.get('use_headers')):
-                # Check if next line exists and is content
                 if i + 1 < len(lines) and lines[i + 1].strip():
                     formatted_lines.append(f"## {stripped}")
                 else:
                     formatted_lines.append(stripped)
-            # Already a list item (-, *, bullet)
+            # Already a list item
             elif stripped.startswith(('-', '*')):
                 clean_content = stripped.lstrip('-* ').strip()
                 formatted_lines.append(f"- {clean_content}")
@@ -281,7 +285,7 @@ class AIService:
         self, 
         user_input: str, 
         error: Optional[str] = None,
-        conversation_id: Optional[str] = None  # NEW
+        conversation_id: Optional[str] = None
     ) -> Dict:
         """
         Generate a fallback response when the main pipeline fails.
@@ -296,6 +300,6 @@ class AIService:
             'format_type': FormatType.CONVERSATIONAL.value,
             'metadata': {'fallback': True, 'error': error},
             'success': False,
-            'conversation_id': conversation_id,  # NEW
-            'conversation_length': 0  # NEW
+            'conversation_id': conversation_id,
+            'conversation_length': 0
         }
