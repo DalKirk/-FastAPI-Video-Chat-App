@@ -4,10 +4,17 @@ Run this to verify the web search feature is working correctly
 """
 import os
 import asyncio
+import pytest
 from utils.claude_client import get_claude_client
 
+
+@pytest.mark.asyncio
 async def test_web_search():
     """Test the web search integration"""
+    # Skip if API key not set
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        pytest.skip("ANTHROPIC_API_KEY not set")
+    
     print("?? Testing Claude AI Web Search Integration")
     print("=" * 60)
     
@@ -16,9 +23,7 @@ async def test_web_search():
     
     # Check if Claude is enabled
     if not claude.is_enabled:
-        print("? Claude AI is not configured")
-        print("   Please add ANTHROPIC_API_KEY to your .env file")
-        return False
+        pytest.skip("Claude AI is not configured")
     
     print("? Claude AI is enabled")
     
@@ -45,76 +50,68 @@ async def test_web_search():
     # Test 1: Query WITHOUT search trigger (general knowledge)
     print("\n[Test 1] General knowledge query (no search):")
     print("Query: 'Explain what Python is'")
-    try:
-        response1 = await claude.generate_response(
-            "Explain what Python is in one sentence",
-            max_tokens=100,
-            enable_search=False
-        )
-        print(f"? Response: {response1[:150]}...")
-    except Exception as e:
-        print(f"? Error: {e}")
+    response1 = await claude.generate_response(
+        "Explain what Python is in one sentence",
+        max_tokens=100,
+        enable_search=False
+    )
+    assert response1 is not None
+    assert len(response1) > 0
+    print(f"? Response: {response1[:150]}...")
     
     # Test 2: Query WITH search trigger (current info)
     if claude.is_search_enabled:
         print("\n[Test 2] Current info query (with search):")
         print("Query: 'What is the latest news on AI technology today?'")
-        try:
-            response2 = await claude.generate_response(
-                "What is the latest news on AI technology today?",
-                max_tokens=200,
-                conversation_id="test_search"
-            )
-            print(f"? Response: {response2[:200]}...")
-            
-            # Check if response mentions sources
-            if any(word in response2.lower() for word in ['source', 'according', 'url', 'http']):
-                print("? Response includes source citations")
-            else:
-                print("? Response may not include sources")
-                
-        except Exception as e:
-            print(f"? Error: {e}")
+        response2 = await claude.generate_response(
+            "What is the latest news on AI technology today?",
+            max_tokens=200,
+            conversation_id="test_search"
+        )
+        assert response2 is not None
+        assert len(response2) > 0
+        print(f"? Response: {response2[:200]}...")
+        
+        # Check if response mentions sources
+        if any(word in response2.lower() for word in ['source', 'according', 'url', 'http']):
+            print("? Response includes source citations")
     else:
         print("\n[Test 2] Skipped - Web search not enabled")
     
     # Test 3: Conversation history
     print("\n[Test 3] Conversation history:")
     print("Creating a conversation with memory...")
-    try:
-        conv_id = "test_memory"
-        
-        # First message
-        await claude.generate_response(
-            "My favorite color is blue",
-            conversation_id=conv_id,
-            enable_search=False
-        )
-        print("? Sent: 'My favorite color is blue'")
-        
-        # Second message (tests memory)
-        response3 = await claude.generate_response(
-            "What's my favorite color?",
-            conversation_id=conv_id,
-            enable_search=False
-        )
-        print(f"? Response: {response3}")
-        
-        if "blue" in response3.lower():
-            print("? Claude remembered the conversation!")
-        else:
-            print("? Memory may not be working correctly")
-        
-        # Get conversation stats
-        count = claude.get_conversation_count(conv_id)
-        print(f"? Conversation has {count} messages")
-        
-        # Clean up
-        claude.clear_conversation(conv_id)
-        print("? Conversation cleared")
-        
-    except Exception as e:
-        print(f"? Error: {e}")
+    
+    conv_id = "test_memory"
+    
+    # First message
+    await claude.generate_response(
+        "My favorite color is blue",
+        conversation_id=conv_id,
+        enable_search=False
+    )
+    print("? Sent: 'My favorite color is blue'")
+    
+    # Second message (tests memory)
+    response3 = await claude.generate_response(
+        "What's my favorite color?",
+        conversation_id=conv_id,
+        enable_search=False
+    )
+    assert response3 is not None
+    print(f"? Response: {response3}")
+    
+    assert "blue" in response3.lower(), "Claude did not remember the conversation"
+    print("? Claude remembered the conversation!")
+    
+    # Get conversation stats
+    count = claude.get_conversation_count(conv_id)
+    print(f"? Conversation has {count} messages")
+    assert count == 4  # 2 user + 2 assistant
+    
+    # Clean up
+    claude.clear_conversation(conv_id)
+    print("? Conversation cleared")
     
     # Summary
     print("\n" + "=" * 60)
@@ -130,10 +127,10 @@ async def test_web_search():
         print("   Get a free API key at: https://brave.com/search/api/")
     
     print("\n? All tests completed!")
-    return True
+
 
 def main():
-    """Main test runner"""
+    """Main test runner for manual execution"""
     # Check for API keys
     if not os.getenv("ANTHROPIC_API_KEY"):
         print("? ANTHROPIC_API_KEY not found in environment")
@@ -143,6 +140,7 @@ def main():
     
     # Run async tests
     asyncio.run(test_web_search())
+
 
 if __name__ == "__main__":
     main()
