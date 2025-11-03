@@ -3,6 +3,13 @@ import MessageDisplay from './MessageDisplay';
 import { sendChatMessage } from '../../services/api';
 
 /**
+ * Generate a unique conversation ID
+ */
+const generateConversationId = () => {
+  return `conv_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+};
+
+/**
  * Main ChatInterface component
  * Handles user input, message history, and communication with the AI backend
  */
@@ -11,6 +18,7 @@ const ChatInterface = () => {
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [conversationId, setConversationId] = useState(() => generateConversationId());
   const messagesEndRef = useRef(null);
 
   // Auto-scroll to bottom when new messages arrive
@@ -21,6 +29,11 @@ const ChatInterface = () => {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Log conversation ID on mount for debugging
+  useEffect(() => {
+    console.log('?? Conversation ID initialized:', conversationId);
+  }, [conversationId]);
 
   const handleSendMessage = async () => {
     if (!inputValue.trim() || isLoading) return;
@@ -41,8 +54,13 @@ const ChatInterface = () => {
     setIsLoading(true);
 
     try {
-      // Send to backend with latest history
-      const response = await sendChatMessage(userMessage.content, updatedHistory);
+      // Send to backend with conversation ID for memory
+      console.log('?? Sending message with conversation ID:', conversationId);
+      const response = await sendChatMessage(
+        userMessage.content, 
+        updatedHistory,
+        conversationId // Pass conversation ID
+      );
 
       // Add AI response to chat
       const aiMessage = {
@@ -51,8 +69,10 @@ const ChatInterface = () => {
         formatType: response.format_type,
         metadata: response.metadata,
         timestamp: new Date().toISOString(),
+        conversationLength: response.conversation_length, // Track conversation length
       };
 
+      console.log('? AI response received (conversation length:', response.conversation_length, ')');
       setMessages(prev => [...prev, aiMessage]);
     } catch (err) {
       console.error('Error sending message:', err);
@@ -82,6 +102,10 @@ const ChatInterface = () => {
     if (window.confirm('Clear all messages?')) {
       setMessages([]);
       setError(null);
+      // Generate new conversation ID when clearing chat
+      const newConversationId = generateConversationId();
+      setConversationId(newConversationId);
+      console.log('?? Chat cleared, new conversation ID:', newConversationId);
     }
   };
 
@@ -176,6 +200,7 @@ const ChatInterface = () => {
                 strokeLinecap="round" 
                 strokeLinejoin="round"
               />
+            </svg>
           )}
         </button>
       </div>

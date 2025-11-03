@@ -13,9 +13,10 @@ console.log('?? API_BASE_URL:', API_BASE_URL); // Debug log
  * Send a chat message to the AI backend
  * @param {string} message - The user's message
  * @param {Array} conversationHistory - Previous messages in the conversation
+ * @param {string} conversationId - Unique ID to maintain conversation history
  * @returns {Promise<Object>} - The AI response
  */
-export const sendChatMessage = async (message, conversationHistory = []) => {
+export const sendChatMessage = async (message, conversationHistory = [], conversationId = null) => {
   // Validate message before sending
   if (!message || typeof message !== 'string' || !message.trim()) {
     console.error('? sendChatMessage: message is empty or invalid:', message);
@@ -29,12 +30,14 @@ export const sendChatMessage = async (message, conversationHistory = []) => {
       content: msg.content,
       timestamp: msg.timestamp || new Date().toISOString(),
     })),
+    conversation_id: conversationId, // Add conversation_id to payload
   };
 
   console.log('?? Sending to backend:', {
     url: `${API_BASE_URL}/api/ai-proxy`,
     message: payload.message.substring(0, 50) + '...',
-    historyLength: payload.conversation_history.length
+    historyLength: payload.conversation_history.length,
+    conversationId: conversationId // Log conversation_id
   });
 
   try {
@@ -58,7 +61,9 @@ export const sendChatMessage = async (message, conversationHistory = []) => {
     console.log('? Response received:', {
       format_type: data.format_type,
       content_length: data.content?.length,
-      success: data.success
+      success: data.success,
+      conversation_id: data.conversation_id, // Log returned conversation_id
+      conversation_length: data.conversation_length
     });
     
     return data;
