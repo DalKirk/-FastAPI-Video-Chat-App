@@ -1,10 +1,21 @@
 @echo off
-REM Simple batch script to push changes to GitHub
+REM Simple batch script to commit and push changes to GitHub
 echo ====================================
 echo Pushing changes to GitHub
 echo ====================================
 
 cd /d "C:\Users\g-kd\OneDrive\Desktop\My_FastAPI_Python"
+
+echo.
+echo Checking for corrupted files...
+REM Clean up any corrupted files with invalid names
+for /f "delims=" %%F in ('git ls-files 2^>nul') do (
+    echo %%F | findstr /C:"} finally {" >nul
+    if not errorlevel 1 (
+        echo Removing corrupted file: %%F
+        git rm --cached "%%F" >nul 2>&1
+    )
+)
 
 echo.
 echo Staging all changes...
