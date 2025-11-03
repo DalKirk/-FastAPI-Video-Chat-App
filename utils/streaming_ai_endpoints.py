@@ -1,5 +1,5 @@
 """
-Streaming AI endpoint for Claude API with Server-Sent Events (SSE)
+Streaming AI endpoint for Claude API with Server-Sent Events (SSE) and Web Search
 Add this to your main.py or import the streaming_ai_router
 """
 from fastapi import APIRouter, HTTPException
@@ -23,8 +23,8 @@ class StreamChatRequest(BaseModel):
     max_tokens: int = 2048
     temperature: float = 0.7
     system: Optional[str] = None
-    enable_search: bool = True  # NEW: Enable/disable web search
-    conversation_id: Optional[str] = None  # NEW: Conversation tracking
+    enable_search: bool = True  # Enable/disable web search
+    conversation_id: Optional[str] = None  # Conversation tracking
 
 
 class StreamGenerateRequest(BaseModel):
@@ -33,8 +33,8 @@ class StreamGenerateRequest(BaseModel):
     max_tokens: int = 2048
     temperature: float = 0.7
     system_prompt: Optional[str] = None
-    enable_search: bool = True  # NEW: Enable/disable web search
-    conversation_id: Optional[str] = None  # NEW: Conversation tracking
+    enable_search: bool = True  # Enable/disable web search
+    conversation_id: Optional[str] = None  # Conversation tracking
 
 
 # Streaming Chat Endpoint (Multi-turn conversations)
@@ -52,6 +52,10 @@ async def stream_chat(request: StreamChatRequest):
             detail="Claude AI is not configured. Add ANTHROPIC_API_KEY to environment."
         )
 
+    # Log incoming request
+    logger.info(f"??? Stream chat request (enable_search={request.enable_search}, "
+                f"conversation_id={request.conversation_id}, messages={len(request.messages)})")
+
     async def generate():
         try:
             # Extract last user message for potential search query
@@ -62,6 +66,8 @@ async def stream_chat(request: StreamChatRequest):
                     if isinstance(content, str):
                         user_text = content
                     break
+
+            logger.info(f"?? User query: {user_text[:100]}...")
 
             # Build system prompt with date context
             date_context = claude._get_current_date_context()
@@ -74,10 +80,14 @@ async def stream_chat(request: StreamChatRequest):
 
             # Add web search results if enabled and available
             search_results = []
+            search_triggered = False
+            
             if request.enable_search and claude.is_search_enabled and user_text:
                 search_query = claude._detect_search_need(user_text, [])
+                search_triggered = search_query is not None
+                
                 if search_query:
-                    logger.info(f"Streaming search for: {search_query}")
+                    logger.info(f"?? Search triggered for: {search_query}")
                     search_results = await claude._search_web(search_query, count=5)
                     
                     if search_results:
@@ -90,9 +100,19 @@ async def stream_chat(request: StreamChatRequest):
                         search_context += "Use these results to provide accurate, up-to-date information. Cite sources when relevant.\n"
                         system_prompt += search_context
                         
-                        logger.info(f"Added {len(search_results)} search results to context")
+                        logger.info(f"? Added {len(search_results)} search results to streaming context")
+                    else:
+                        logger.warning(f"?? Search triggered but returned 0 results")
+                else:
+                    logger.debug(f"?? Search not needed for this query")
+            elif not request.enable_search:
+                logger.debug(f"?? Search disabled by request")
+            elif not claude.is_search_enabled:
+                logger.warning(f"?? Search requested but Brave API key not configured")
 
             # Stream Claude's response directly without modification
+            logger.info(f"?? Starting stream with model: {claude.active_model}")
+            
             with claude.client.messages.stream(
                 model=claude.active_model,
                 max_tokens=request.max_tokens,
@@ -100,26 +120,33 @@ async def stream_chat(request: StreamChatRequest):
                 system=system_prompt,
                 messages=request.messages,
             ) as stream:
+                chunk_count = 0
                 for text in stream.text_stream:
-                    # Pass Claude's output directly - no modification needed
                     chunk = text or ""
+                    chunk_count += 1
                     yield f"data: {json.dumps({'text': chunk, 'type': 'content'})}\n\n"
+                
+                logger.info(f"? Stream completed ({chunk_count} chunks)")
 
-            # Send completion with metadata - Fixed formatting
+            # Send completion with metadata
             completion_data = {
                 'type': 'done', 
                 'model': claude.active_model,
                 'search_used': bool(search_results),
-                'search_results_count': len(search_results)
+                'search_results_count': len(search_results),
+                'search_triggered': search_triggered,
+                'conversation_id': request.conversation_id
             }
             yield f"data: {json.dumps(completion_data)}\n\n"
 
         except anthropic.NotFoundError as e:
+            logger.error(f"? Model not found: {e}")
             yield f"data: {json.dumps({'type': 'error', 'error': f'Model not found: {str(e)}'})}\n\n"
         except anthropic.AuthenticationError as e:
+            logger.error(f"? Authentication error: {e}")
             yield f"data: {json.dumps({'type': 'error', 'error': 'Invalid API key'})}\n\n"
         except Exception as e:
-            logger.error(f"Streaming error: {e}", exc_info=True)
+            logger.error(f"? Streaming error: {e}", exc_info=True)
             yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
 
     return StreamingResponse(
@@ -148,8 +175,13 @@ async def stream_generate(request: StreamGenerateRequest):
             detail="Claude AI is not configured. Add ANTHROPIC_API_KEY to environment."
         )
 
+    logger.info(f"??? Stream generate request (enable_search={request.enable_search}, "
+                f"prompt_length={len(request.prompt)})")
+
     async def generate():
         try:
+            logger.info(f"?? Prompt: {request.prompt[:100]}...")
+
             # Build system prompt with date context
             date_context = claude._get_current_date_context()
             if request.system_prompt:
@@ -159,10 +191,14 @@ async def stream_generate(request: StreamGenerateRequest):
 
             # Add web search results if enabled and available
             search_results = []
+            search_triggered = False
+            
             if request.enable_search and claude.is_search_enabled and request.prompt:
                 search_query = claude._detect_search_need(request.prompt, [])
+                search_triggered = search_query is not None
+                
                 if search_query:
-                    logger.info(f"Streaming search for: {search_query}")
+                    logger.info(f"?? Search triggered for: {search_query}")
                     search_results = await claude._search_web(search_query, count=5)
                     
                     if search_results:
@@ -175,11 +211,21 @@ async def stream_generate(request: StreamGenerateRequest):
                         search_context += "Use these results to provide accurate, up-to-date information. Cite sources when relevant.\n"
                         system_prompt += search_context
                         
-                        logger.info(f"Added {len(search_results)} search results to context")
+                        logger.info(f"? Added {len(search_results)} search results to streaming context")
+                    else:
+                        logger.warning(f"?? Search triggered but returned 0 results")
+                else:
+                    logger.debug(f"?? Search not needed for this query")
+            elif not request.enable_search:
+                logger.debug(f"?? Search disabled by request")
+            elif not claude.is_search_enabled:
+                logger.warning(f"?? Search requested but Brave API key not configured")
 
             messages = [{"role": "user", "content": request.prompt}]
 
             # Stream Claude's response directly without modification
+            logger.info(f"?? Starting stream with model: {claude.active_model}")
+            
             with claude.client.messages.stream(
                 model=claude.active_model,
                 max_tokens=request.max_tokens,
@@ -187,24 +233,32 @@ async def stream_generate(request: StreamGenerateRequest):
                 system=system_prompt,
                 messages=messages,
             ) as stream:
+                chunk_count = 0
                 for text in stream.text_stream:
-                    # Pass Claude's output directly - no modification needed
                     chunk = text or ""
+                    chunk_count += 1
                     yield f"data: {json.dumps({'text': chunk, 'type': 'content'})}\n\n"
+                
+                logger.info(f"? Stream completed ({chunk_count} chunks)")
 
-            # Send completion with metadata - Fixed formatting
+            # Send completion with metadata
             completion_data = {
                 'type': 'done', 
                 'model': claude.active_model,
                 'search_used': bool(search_results),
-                'search_results_count': len(search_results)
+                'search_results_count': len(search_results),
+                'search_triggered': search_triggered,
+                'conversation_id': request.conversation_id
             }
             yield f"data: {json.dumps(completion_data)}\n\n"
 
         except anthropic.NotFoundError:
             # Fallback to backup model
+            logger.warning(f"?? Model not found, trying fallback")
             try:
                 claude.active_model = claude.get_model_info()["fallback_model"]
+                logger.info(f"?? Switched to fallback model: {claude.active_model}")
+                
                 with claude.client.messages.stream(
                     model=claude.active_model,
                     max_tokens=request.max_tokens,
@@ -212,25 +266,32 @@ async def stream_generate(request: StreamGenerateRequest):
                     system=system_prompt,
                     messages=messages,
                 ) as stream:
+                    chunk_count = 0
                     for text in stream.text_stream:
                         chunk = text or ""
+                        chunk_count += 1
                         yield f"data: {json.dumps({'text': chunk, 'type': 'content'})}\n\n"
+                    
+                    logger.info(f"? Fallback stream completed ({chunk_count} chunks)")
                 
-                # Send fallback completion - Fixed formatting
+                # Send fallback completion
                 fallback_data = {
                     'type': 'done', 
                     'model': claude.active_model, 
                     'fallback': True,
                     'search_used': bool(search_results),
-                    'search_results_count': len(search_results)
+                    'search_results_count': len(search_results),
+                    'search_triggered': search_triggered
                 }
                 yield f"data: {json.dumps(fallback_data)}\n\n"
             except Exception as fallback_error:
+                logger.error(f"? Fallback also failed: {fallback_error}")
                 yield f"data: {json.dumps({'type': 'error', 'error': f'Both models failed: {str(fallback_error)}'})}\n\n"
         except anthropic.AuthenticationError:
+            logger.error(f"? Authentication error")
             yield f"data: {json.dumps({'type': 'error', 'error': 'Invalid API key'})}\n\n"
         except Exception as e:
-            logger.error(f"Streaming error: {e}", exc_info=True)
+            logger.error(f"? Streaming error: {e}", exc_info=True)
             yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
 
     return StreamingResponse(
@@ -252,7 +313,7 @@ async def streaming_health_check():
 
     return {
         "streaming_enabled": claude.is_enabled,
-        "search_enabled": claude.is_search_enabled,  # NEW: Show search status
+        "search_enabled": claude.is_search_enabled,
         "model": claude.active_model if claude.is_enabled else None,
         "supports_streaming": True,
         "format": "Server-Sent Events (SSE)",
@@ -260,7 +321,8 @@ async def streaming_health_check():
         "features": {
             "conversation_history": True,
             "web_search": claude.is_search_enabled,
-            "markdown": True
+            "markdown": True,
+            "aggressive_search_detection": True  # NEW: Using updated detection
         }
     }
 

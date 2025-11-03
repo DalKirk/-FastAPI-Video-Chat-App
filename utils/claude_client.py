@@ -107,7 +107,7 @@ class ClaudeClient:
                         "description": item.get("description", "")
                     })
                 
-                logger.info(f"Web search for '{query}' returned {len(results)} results")
+                logger.info(f"🔍 Web search for '{query}' returned {len(results)} results")
                 return results
                 
         except httpx.TimeoutException:
@@ -122,27 +122,46 @@ class ClaudeClient:
     
     def _detect_search_need(self, prompt: str, conversation_history: List[Dict]) -> Optional[str]:
         """
-        Detect if the query requires web search and extract search query.
+        Detect if the query requires web search.
+        Defaults to searching for factual queries; skips search for creative tasks.
         
         Returns:
             Search query string if search is needed, None otherwise
         """
-        # Keywords that indicate current/recent information needs
-        current_indicators = [
-            "today", "now", "current", "latest", "recent", "news",
-            "this week", "this month", "this year", "2024", "2025",
-            "what's happening", "what happened", "update on"
+        prompt_lower = prompt.lower()
+        
+        # Skip search for creative/generative tasks
+        creative_indicators = [
+            "write a", "create a", "generate a", "compose a", "draft a",
+            "make a", "build a", "design a",
+            "tell me a story", "poem", "song", "joke", "riddle",
+            "translate", "rewrite", "rephrase", "paraphrase",
+            "summarize this text", "summarize the following"
         ]
         
-        # Check if prompt contains current info indicators
-        prompt_lower = prompt.lower()
-        needs_search = any(indicator in prompt_lower for indicator in current_indicators)
+        # Skip search for explanatory/educational questions about concepts
+        concept_indicators = [
+            "explain how", "explain why", "how does", "why does",
+            "what is the difference between", "compare",
+            "teach me", "help me understand"
+        ]
         
-        if needs_search:
-            # Return the original prompt as search query
-            return prompt
+        # Skip search for code generation
+        code_indicators = [
+            "write code", "write a function", "write a script",
+            "create a function", "code for", "program that",
+            "regex for", "sql query", "fix this code", "debug this"
+        ]
         
-        return None
+        # Check if it's a creative/explanatory/code task
+        all_skip_indicators = creative_indicators + concept_indicators + code_indicators
+        if any(indicator in prompt_lower for indicator in all_skip_indicators):
+            logger.debug(f"ℹ️  Skipping search for creative/explanatory task: {prompt[:50]}...")
+            return None
+        
+        # Default: enable search for factual queries
+        logger.info(f"🔍 Search enabled for factual query: {prompt[:60]}...")
+        return prompt
     
     async def generate_response(
         self,
@@ -183,7 +202,6 @@ class ClaudeClient:
         if enable_search and self.is_search_enabled:
             search_query = self._detect_search_need(prompt, messages)
             if search_query:
-                logger.info(f"Detected search need for: {search_query}")
                 search_results = await self._search_web(search_query, count=5)
         
         # Prepare system prompt with date context and search results
@@ -208,6 +226,7 @@ class ClaudeClient:
                 "Cite sources by mentioning the title or URL when relevant.\n"
             )
             full_system_prompt += search_context
+            logger.info(f"✓ Added {len(search_results)} search results to context")
         
         # Add current user message
         messages.append({"role": "user", "content": prompt})
@@ -232,7 +251,7 @@ class ClaudeClient:
                 )
             
             logger.info(
-                "Claude response received (len=%d, history_length=%d, search_used=%s)",
+                "✓ Claude response received (len=%d, history_length=%d, search_used=%s)",
                 len(response_text),
                 len(self.conversations.get(conversation_id, [])),
                 bool(search_results)
