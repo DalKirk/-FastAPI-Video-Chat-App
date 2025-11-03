@@ -132,16 +132,21 @@ class AIService:
         """
         base_prompt = "You are a helpful AI assistant. "
         
-        # Add explicit markdown instructions
+        # Add explicit markdown instructions with examples
         markdown_instructions = (
             "Format your responses using proper markdown syntax:\n"
             "- Use ## for main section headers and ### for subsections\n"
-            "- Use - or * for bullet points (one per line)\n"
-            "- Use 1., 2., 3. for numbered lists\n"
+            "- Use - for bullet points (one per line with proper spacing)\n"
+            "  Example:\n"
+            "  - First bullet point\n"
+            "  - Second bullet point\n"
+            "  - Third bullet point\n"
+            "- Use 1., 2., 3. for numbered lists when order matters\n"
             "- Use **bold** for emphasis on important terms\n"
             "- Use `inline code` for short code snippets\n"
             "- Use ```language blocks for multi-line code\n"
-            "- Add blank lines between sections for readability\n\n"
+            "- Add blank lines between sections for readability\n"
+            "- When listing items, ALWAYS use proper markdown bullet points (- ) or numbers (1. )\n\n"
         )
         
         base_prompt += markdown_instructions
@@ -158,7 +163,7 @@ class AIService:
         if format_rules.get('use_headers'):
             base_prompt += "Organize your response with clear headers (## Header).\n"
         if format_rules.get('use_lists'):
-            base_prompt += "Use bullet points or numbered lists to make information scannable.\n"
+            base_prompt += "Use bullet points (- item) or numbered lists (1. item) to make information scannable.\n"
         if format_rules.get('paragraph_style') == 'short':
             base_prompt += "Keep paragraphs brief (2-3 sentences max).\n"
 
@@ -175,9 +180,12 @@ class AIService:
         """
         Convert plain text to proper markdown if the AI didn't format it correctly.
         This acts as a safety net to ensure markdown structure.
+        
+        IMPORTANT: If Claude already provided markdown, preserve it exactly as-is.
         """
-        # If content already has markdown, return as-is
+        # If content already has markdown, return as-is - DON'T modify Claude's output
         if self._has_markdown_structure(content):
+            logger.info("? Content already has markdown structure, preserving as-is")
             return content
 
         # Otherwise, intelligently convert to markdown
@@ -203,17 +211,36 @@ class AIService:
                 formatted_lines.append(line)
                 continue
 
-            # Convert numbered patterns to markdown lists
-            numbered_pattern = r'^(\d+\.|\d+\))\s*(.+)$'
+            # Preserve existing bullet points and lists - DON'T convert them
+            if stripped.startswith(('-', '*')):
+                # Already a bullet point - preserve it
+                formatted_lines.append(line)
+                continue
+            
+            # Check for unicode bullet character separately
+            if len(stripped) > 0 and ord(stripped[0]) == 8226:  # Unicode bullet •
+                formatted_lines.append(line)
+                continue
+
+            # Preserve numbered lists - DON'T convert them
+            if re.match(r'^\d+\.\s', stripped):
+                # Already a numbered list - preserve it
+                formatted_lines.append(line)
+                continue
+
+            # Convert ONLY explicit numbered patterns like "1)" or word-based numbering
+            numbered_pattern = r'^(\d+\))\s*(.+)$'  # Only match "1)" style, not "1."
             word_number_pattern = r'^(First|Second|Third|Fourth|Fifth|Sixth|Seventh|Eighth|Ninth|Tenth)[,:]?\s*(.+)$'
 
             numbered_match = re.match(numbered_pattern, stripped)
             word_match = re.match(word_number_pattern, stripped, re.IGNORECASE)
 
             if numbered_match:
+                # Convert "1)" style to bullet point
                 content_part = numbered_match.group(2)
                 formatted_lines.append(f"- {content_part}")
             elif word_match:
+                # Convert word-based numbering to bullet point
                 word = word_match.group(1)
                 content_part = word_match.group(2)
                 formatted_lines.append(f"- **{word}**: {content_part}")
@@ -226,10 +253,6 @@ class AIService:
                     formatted_lines.append(f"## {stripped}")
                 else:
                     formatted_lines.append(stripped)
-            # Already a list item
-            elif stripped.startswith(('-', '*')):
-                clean_content = stripped.lstrip('-* ').strip()
-                formatted_lines.append(f"- {clean_content}")
             else:
                 # Regular paragraph
                 formatted_lines.append(stripped)
@@ -244,7 +267,7 @@ class AIService:
         markdown_indicators = [
             r'^#+\s',           # Headers
             r'^\s*[-*]\s',      # Bullet lists
-            r'^\s*\d+\.\s',     # Numbered lists
+            r'^\s*\d+\.\s',     # Numbered lists (e.g., "1. ")
             r'\*\*\w+\*\*',     # Bold
             r'`\w+`',           # Inline code
             r'```',             # Code blocks

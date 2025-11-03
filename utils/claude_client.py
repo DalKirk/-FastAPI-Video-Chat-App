@@ -204,10 +204,13 @@ class ClaudeClient:
             if search_query:
                 search_results = await self._search_web(search_query, count=5)
         
-        # Prepare system prompt with date context and search results
+        # Prepare system prompt with date context - ALWAYS include it
         date_context = self._get_current_date_context()
+        
+        # Build full system prompt by combining all parts
         full_system_prompt = date_context
         
+        # Add custom system prompt if provided
         if system_prompt:
             full_system_prompt += f"\n\n{system_prompt}"
         else:
@@ -228,7 +231,7 @@ class ClaudeClient:
             full_system_prompt += search_context
             logger.info(f"✓ Added {len(search_results)} search results to context")
         
-        # Add current user message
+        # Add current user message to the conversation
         messages.append({"role": "user", "content": prompt})
         
         try:
@@ -241,7 +244,7 @@ class ClaudeClient:
             )
             response_text = message.content[0].text
             
-            # Save conversation history
+            # Save conversation history - IMPORTANT: Save both user and assistant messages
             if conversation_id:
                 self.conversations[conversation_id].append(
                     {"role": "user", "content": prompt}
