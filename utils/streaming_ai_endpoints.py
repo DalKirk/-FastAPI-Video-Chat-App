@@ -73,10 +73,27 @@ async def stream_chat(request: StreamChatRequest):
             date_context = claude._get_current_date_context()
             system_prompt = request.system or ""
             
+            # Add markdown formatting instructions
+            markdown_instructions = (
+                "\n\nIMPORTANT FORMATTING RULES:\n"
+                "- When creating lists, use proper markdown with ONE ITEM PER LINE\n"
+                "- For bullet points, use this format:\n"
+                "  - First item\n"
+                "  - Second item\n"
+                "  - Third item\n"
+                "- For numbered lists, use this format:\n"
+                "  1. First item\n"
+                "  2. Second item\n"
+                "  3. Third item\n"
+                "- NEVER put multiple list items on the same line\n"
+                "- NEVER use unicode bullets (•), always use markdown dashes (-)\n"
+                "- Add blank lines before and after lists\n"
+            )
+            
             if system_prompt:
-                system_prompt = f"{date_context}\n\n{system_prompt}"
+                system_prompt = f"{date_context}\n\n{system_prompt}{markdown_instructions}"
             else:
-                system_prompt = f"{date_context}\n\nYou are a helpful AI assistant."
+                system_prompt = f"{date_context}\n\nYou are a helpful AI assistant.{markdown_instructions}"
 
             # Stream Claude's response with full conversation history
             logger.info(f"?? Starting stream with model: {claude.active_model}")
