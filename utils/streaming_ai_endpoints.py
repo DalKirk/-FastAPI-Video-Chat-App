@@ -10,8 +10,64 @@ from utils.claude_client import get_claude_client
 import json
 import anthropic
 import logging
+import os
+from datetime import datetime
+import httpx
 
 logger = logging.getLogger(__name__)
+
+# Brave Search Integration
+BRAVE_SEARCH_KEY = os.getenv("BRAVE_SEARCH_API_KEY")
+
+def brave_enabled() -> bool:
+    """Check if Brave Search is configured"""
+    return bool(BRAVE_SEARCH_KEY)
+
+async def brave_search(query: str, count: int = 5) -> List[Dict[str, Any]]:
+    """Fetch web search results from Brave API"""
+    if not brave_enabled() or not query:
+        return []
+    
+    headers = {"X-Subscription-Token": BRAVE_SEARCH_KEY}
+    params = {"q": query, "count": count, "source": "web"}
+    
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                "https://api.search.brave.com/res/v1/web/search",
+                headers=headers,
+                params=params
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            web_results = (data.get("web", {}) or {}).get("results", []) or []
+            
+            results = []
+            for r in web_results[:count]:
+                results.append({
+                    "title": r.get("title", "").strip(),
+                    "url": r.get("url", "").strip(),
+                    "snippet": r.get("snippet", "").strip(),
+                })
+            return results
+    except Exception as e:
+        logger.warning(f"Brave search failed: {e}")
+        return []
+
+def format_search_context(results: List[Dict[str, Any]]) -> str:
+    """Format search results for injection into system prompt"""
+    if not results:
+        return ""
+    
+    lines = ["Web context (Brave):"]
+    for i, r in enumerate(results, 1):
+        title = r.get("title", "")
+        url = r.get("url", "")
+        snippet = r.get("snippet", "")
+        lines.append(f"{i}. {title} - {snippet} [ref: {url}]")
+    
+    lines.append("\nCite sources with [ref: URL]. If details conflict, say so explicitly.")
+    return "\n".join(lines)
 
 # Create router for streaming AI endpoints
 streaming_ai_router = APIRouter(prefix="/ai/stream", tags=["AI Streaming"])
@@ -24,6 +80,7 @@ class StreamChatRequest(BaseModel):
     temperature: float = 0.7
     system: Optional[str] = None
     conversation_id: Optional[str] = None  # Conversation tracking
+    enable_search: Optional[bool] = True  # Enable web search
 
 
 class StreamGenerateRequest(BaseModel):
@@ -33,6 +90,7 @@ class StreamGenerateRequest(BaseModel):
     temperature: float = 0.7
     system_prompt: Optional[str] = None
     conversation_id: Optional[str] = None  # Conversation tracking
+    enable_search: Optional[bool] = True  # Enable web search
 
 
 # Streaming Chat Endpoint (Multi-turn conversations)
@@ -69,9 +127,41 @@ async def stream_chat(request: StreamChatRequest):
             
             logger.info(f"Using {len(conversation_messages)} messages in conversation history")
             
+            # Extract last user message for search query
+            user_text = ""
+            for m in reversed(request.messages):
+                if m.get("role") == "user":
+                    content = m.get("content")
+                    if isinstance(content, str):
+                        user_text = content
+                    elif isinstance(content, list):
+                        user_text = " ".join([
+                            c.get("text", "") 
+                            for c in content 
+                            if isinstance(c, dict) and c.get("type") == "text"
+                        ])
+                    break
+            
             # Build system prompt with date context
             date_context = claude._get_current_date_context()
-            system_prompt = request.system or ""
+            injected_system = request.system or ""
+            
+            # Inject Brave search results if enabled
+            search_results = []
+            if request.enable_search and brave_enabled() and user_text:
+                search_results = await brave_search(user_text, count=5)
+                search_context = format_search_context(search_results)
+                if search_context:
+                    if injected_system:
+                        injected_system = f"{injected_system}\n\n{search_context}"
+                    else:
+                        injected_system = search_context
+            
+            logger.info(
+                f"stream_chat: enable_search={request.enable_search}, "
+                f"query_present={bool(user_text)}, "
+                f"results={len(search_results)}"
+            )
             
             # Add markdown formatting instructions
             markdown_instructions = (
@@ -90,10 +180,10 @@ async def stream_chat(request: StreamChatRequest):
                 "- Add blank lines before and after lists\n"
             )
             
-            if system_prompt:
-                system_prompt = f"{date_context}\n\n{system_prompt}{markdown_instructions}"
+            if injected_system:
+                injected_system = f"{date_context}\n\n{injected_system}{markdown_instructions}"
             else:
-                system_prompt = f"{date_context}\n\nYou are a helpful AI assistant.{markdown_instructions}"
+                injected_system = f"{date_context}\n\nYou are a helpful AI assistant.{markdown_instructions}"
 
             # Stream Claude's response with full conversation history
             logger.info(f"Starting stream with model: {claude.active_model}")
@@ -104,7 +194,7 @@ async def stream_chat(request: StreamChatRequest):
                 model=claude.active_model,
                 max_tokens=request.max_tokens,
                 temperature=request.temperature,
-                system=system_prompt,
+                system=injected_system,  # THE CRITICAL CHANGE - use injected_system!
                 messages=conversation_messages,  # Use full conversation history
             ) as stream:
                 chunk_count = 0
@@ -180,21 +270,40 @@ async def stream_generate(request: StreamGenerateRequest):
         try:
             # Build system prompt with date context
             date_context = claude._get_current_date_context()
-            if request.system_prompt:
-                system_prompt = f"{date_context}\n\n{request.system_prompt}"
+            injected_system = request.system_prompt or ""
+            
+            # Inject Brave search results if enabled
+            search_results = []
+            if request.enable_search and brave_enabled() and request.prompt:
+                search_results = await brave_search(request.prompt, count=5)
+                search_context = format_search_context(search_results)
+                if search_context:
+                    if injected_system:
+                        injected_system = f"{injected_system}\n\n{search_context}"
+                    else:
+                        injected_system = search_context
+            
+            logger.info(
+                f"stream_generate: enable_search={request.enable_search}, "
+                f"prompt_present={bool(request.prompt)}, "
+                f"results={len(search_results)}"
+            )
+            
+            if injected_system:
+                injected_system = f"{date_context}\n\n{injected_system}"
             else:
-                system_prompt = f"{date_context}\n\nYou are a helpful AI assistant."
+                injected_system = f"{date_context}\n\nYou are a helpful AI assistant."
 
             messages = [{"role": "user", "content": request.prompt}]
 
-            # Stream Claude's response directly without modification
+            # Stream Claude's response
             logger.info(f"Starting stream with model: {claude.active_model}")
             
             with claude.client.messages.stream(
                 model=claude.active_model,
                 max_tokens=request.max_tokens,
                 temperature=request.temperature,
-                system=system_prompt,
+                system=injected_system,  # THE CRITICAL CHANGE - use injected_system!
                 messages=messages,
             ) as stream:
                 chunk_count = 0
@@ -224,7 +333,7 @@ async def stream_generate(request: StreamGenerateRequest):
                     model=claude.active_model,
                     max_tokens=request.max_tokens,
                     temperature=request.temperature,
-                    system=system_prompt,
+                    system=injected_system,
                     messages=messages,
                 ) as stream:
                     chunk_count = 0
@@ -275,9 +384,11 @@ async def streaming_health_check():
         "supports_streaming": True,
         "format": "Server-Sent Events (SSE)",
         "text_formatting": "raw Claude output (unmodified)",
+        "brave_search_enabled": brave_enabled(),  # NEW: Expose Brave status
         "features": {
             "conversation_history": True,
-            "markdown": True
+            "markdown": True,
+            "web_search": brave_enabled()  # NEW: Web search feature
         }
     }
 
