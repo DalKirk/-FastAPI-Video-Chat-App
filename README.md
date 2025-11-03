@@ -4,13 +4,7 @@ A comprehensive real-time video chat application with live streaming capabilitie
 
 ## 🌟 **Live Deployment**
 
-### **🎯 Production URLs:**
-- **🏠 Backend API:** https://web-production-3ba7e.up.railway.app
-- **💚 Health Check:** https://web-production-3ba7e.up.railway.app/health
-- **📚 API Documentation:** https://web-production-3ba7e.up.railway.app/docs
-- **💬 Chat Interface:** https://web-production-3ba7e.up.railway.app/chat
-- **🖥️ Frontend (Primary):** https://next-js-14-front-end-for-chat-plast.vercel.app
-- **🖥️ Frontend (Alternative):** https://video-chat-frontend-ruby.vercel.app
+
 
 > **⚠️ Note:** Railway free tier services sleep after inactivity. If you see a 502 error, the backend is waking up (takes 2-3 minutes).
 
