@@ -51,11 +51,11 @@ async def stream_chat(request: StreamChatRequest):
         )
 
     # Log incoming request
-    logger.info(f"?? Stream chat request (conversation_id={request.conversation_id}, messages={len(request.messages)})")
+    logger.info(f"Stream chat request (conversation_id={request.conversation_id}, messages={len(request.messages)})")
 
     async def generate():
         try:
-            # ? Get or create conversation history
+            # Get or create conversation history
             if request.conversation_id:
                 if request.conversation_id not in claude.conversations:
                     claude.conversations[request.conversation_id] = []
@@ -67,7 +67,7 @@ async def stream_chat(request: StreamChatRequest):
                 # No conversation tracking - just use request messages
                 conversation_messages = request.messages
             
-            logger.info(f"?? Using {len(conversation_messages)} messages in conversation history")
+            logger.info(f"Using {len(conversation_messages)} messages in conversation history")
             
             # Build system prompt with date context
             date_context = claude._get_current_date_context()
@@ -86,7 +86,7 @@ async def stream_chat(request: StreamChatRequest):
                 "  2. Second item\n"
                 "  3. Third item\n"
                 "- NEVER put multiple list items on the same line\n"
-                "- NEVER use unicode bullets (•), always use markdown dashes (-)\n"
+                "- NEVER use unicode bullets, always use markdown dashes (-)\n"
                 "- Add blank lines before and after lists\n"
             )
             
@@ -96,27 +96,27 @@ async def stream_chat(request: StreamChatRequest):
                 system_prompt = f"{date_context}\n\nYou are a helpful AI assistant.{markdown_instructions}"
 
             # Stream Claude's response with full conversation history
-            logger.info(f"?? Starting stream with model: {claude.active_model}")
+            logger.info(f"Starting stream with model: {claude.active_model}")
             
-            full_response = ""  # ? Track full response for saving to history
+            full_response = ""  # Track full response for saving to history
             
             with claude.client.messages.stream(
                 model=claude.active_model,
                 max_tokens=request.max_tokens,
                 temperature=request.temperature,
                 system=system_prompt,
-                messages=conversation_messages,  # ? Use full conversation history
+                messages=conversation_messages,  # Use full conversation history
             ) as stream:
                 chunk_count = 0
                 for text in stream.text_stream:
                     chunk = text or ""
                     chunk_count += 1
-                    full_response += chunk  # ? Accumulate response
+                    full_response += chunk  # Accumulate response
                     yield f"data: {json.dumps({'text': chunk, 'type': 'content'})}\n\n"
                 
-                logger.info(f"? Stream completed ({chunk_count} chunks)")
+                logger.info(f"Stream completed ({chunk_count} chunks)")
             
-            # ? Save conversation history
+            # Save conversation history
             if request.conversation_id:
                 # Save the new messages to conversation history
                 for msg in request.messages:
@@ -127,7 +127,7 @@ async def stream_chat(request: StreamChatRequest):
                     "role": "assistant",
                     "content": full_response
                 })
-                logger.info(f"?? Saved to conversation {request.conversation_id} (total: {len(claude.conversations[request.conversation_id])} messages)")
+                logger.info(f"Saved to conversation {request.conversation_id} (total: {len(claude.conversations[request.conversation_id])} messages)")
 
             # Send completion with metadata
             completion_data = {
@@ -139,13 +139,13 @@ async def stream_chat(request: StreamChatRequest):
             yield f"data: {json.dumps(completion_data)}\n\n"
 
         except anthropic.NotFoundError as e:
-            logger.error(f"? Model not found: {e}")
+            logger.error(f"Model not found: {e}")
             yield f"data: {json.dumps({'type': 'error', 'error': f'Model not found: {str(e)}'})}\n\n"
         except anthropic.AuthenticationError as e:
-            logger.error(f"? Authentication error: {e}")
+            logger.error(f"Authentication error: {e}")
             yield f"data: {json.dumps({'type': 'error', 'error': 'Invalid API key'})}\n\n"
         except Exception as e:
-            logger.error(f"? Streaming error: {e}", exc_info=True)
+            logger.error(f"Streaming error: {e}", exc_info=True)
             yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
 
     return StreamingResponse(
@@ -174,7 +174,7 @@ async def stream_generate(request: StreamGenerateRequest):
             detail="Claude AI is not configured. Add ANTHROPIC_API_KEY to environment."
         )
 
-    logger.info(f"?? Stream generate request (prompt_length={len(request.prompt)})")
+    logger.info(f"Stream generate request (prompt_length={len(request.prompt)})")
 
     async def generate():
         try:
@@ -188,7 +188,7 @@ async def stream_generate(request: StreamGenerateRequest):
             messages = [{"role": "user", "content": request.prompt}]
 
             # Stream Claude's response directly without modification
-            logger.info(f"?? Starting stream with model: {claude.active_model}")
+            logger.info(f"Starting stream with model: {claude.active_model}")
             
             with claude.client.messages.stream(
                 model=claude.active_model,
@@ -203,7 +203,7 @@ async def stream_generate(request: StreamGenerateRequest):
                     chunk_count += 1
                     yield f"data: {json.dumps({'text': chunk, 'type': 'content'})}\n\n"
                 
-                logger.info(f"? Stream completed ({chunk_count} chunks)")
+                logger.info(f"Stream completed ({chunk_count} chunks)")
 
             # Send completion with metadata
             completion_data = {
@@ -215,10 +215,10 @@ async def stream_generate(request: StreamGenerateRequest):
 
         except anthropic.NotFoundError:
             # Fallback to backup model
-            logger.warning(f"?? Model not found, trying fallback")
+            logger.warning(f"Model not found, trying fallback")
             try:
                 claude.active_model = claude.get_model_info()["fallback_model"]
-                logger.info(f"?? Switched to fallback model: {claude.active_model}")
+                logger.info(f"Switched to fallback model: {claude.active_model}")
                 
                 with claude.client.messages.stream(
                     model=claude.active_model,
@@ -233,7 +233,7 @@ async def stream_generate(request: StreamGenerateRequest):
                         chunk_count += 1
                         yield f"data: {json.dumps({'text': chunk, 'type': 'content'})}\n\n"
                     
-                    logger.info(f"? Fallback stream completed ({chunk_count} chunks)")
+                    logger.info(f"Fallback stream completed ({chunk_count} chunks)")
                 
                 # Send fallback completion
                 fallback_data = {
@@ -243,13 +243,13 @@ async def stream_generate(request: StreamGenerateRequest):
                 }
                 yield f"data: {json.dumps(fallback_data)}\n\n"
             except Exception as fallback_error:
-                logger.error(f"? Fallback also failed: {fallback_error}")
+                logger.error(f"Fallback also failed: {fallback_error}")
                 yield f"data: {json.dumps({'type': 'error', 'error': f'Both models failed: {str(fallback_error)}'})}\n\n"
         except anthropic.AuthenticationError:
-            logger.error(f"? Authentication error")
+            logger.error(f"Authentication error")
             yield f"data: {json.dumps({'type': 'error', 'error': 'Invalid API key'})}\n\n"
         except Exception as e:
-            logger.error(f"? Streaming error: {e}", exc_info=True)
+            logger.error(f"Streaming error: {e}", exc_info=True)
             yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
 
     return StreamingResponse(
