@@ -55,6 +55,20 @@ async def stream_chat(request: StreamChatRequest):
 
     async def generate():
         try:
+            # ? Get or create conversation history
+            if request.conversation_id:
+                if request.conversation_id not in claude.conversations:
+                    claude.conversations[request.conversation_id] = []
+                # Get existing conversation history
+                conversation_messages = claude.conversations[request.conversation_id].copy()
+                # Append new messages from request
+                conversation_messages.extend(request.messages)
+            else:
+                # No conversation tracking - just use request messages
+                conversation_messages = request.messages
+            
+            logger.info(f"?? Using {len(conversation_messages)} messages in conversation history")
+            
             # Build system prompt with date context
             date_context = claude._get_current_date_context()
             system_prompt = request.system or ""
@@ -64,29 +78,46 @@ async def stream_chat(request: StreamChatRequest):
             else:
                 system_prompt = f"{date_context}\n\nYou are a helpful AI assistant."
 
-            # Stream Claude's response directly without modification
+            # Stream Claude's response with full conversation history
             logger.info(f"?? Starting stream with model: {claude.active_model}")
+            
+            full_response = ""  # ? Track full response for saving to history
             
             with claude.client.messages.stream(
                 model=claude.active_model,
                 max_tokens=request.max_tokens,
                 temperature=request.temperature,
                 system=system_prompt,
-                messages=request.messages,
+                messages=conversation_messages,  # ? Use full conversation history
             ) as stream:
                 chunk_count = 0
                 for text in stream.text_stream:
                     chunk = text or ""
                     chunk_count += 1
+                    full_response += chunk  # ? Accumulate response
                     yield f"data: {json.dumps({'text': chunk, 'type': 'content'})}\n\n"
                 
                 logger.info(f"? Stream completed ({chunk_count} chunks)")
+            
+            # ? Save conversation history
+            if request.conversation_id:
+                # Save the new messages to conversation history
+                for msg in request.messages:
+                    if msg not in claude.conversations[request.conversation_id]:
+                        claude.conversations[request.conversation_id].append(msg)
+                # Save assistant's response
+                claude.conversations[request.conversation_id].append({
+                    "role": "assistant",
+                    "content": full_response
+                })
+                logger.info(f"?? Saved to conversation {request.conversation_id} (total: {len(claude.conversations[request.conversation_id])} messages)")
 
             # Send completion with metadata
             completion_data = {
                 'type': 'done', 
                 'model': claude.active_model,
-                'conversation_id': request.conversation_id
+                'conversation_id': request.conversation_id,
+                'conversation_length': len(claude.conversations.get(request.conversation_id, []))
             }
             yield f"data: {json.dumps(completion_data)}\n\n"
 
