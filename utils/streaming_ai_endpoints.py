@@ -105,13 +105,14 @@ async def stream_chat(request: StreamChatRequest):
                     chunk = text or ""
                     yield f"data: {json.dumps({'text': chunk, 'type': 'content'})}\n\n"
 
-            # Send completion with metadata
-            yield f"data: {json.dumps({
+            # Send completion with metadata - Fixed formatting
+            completion_data = {
                 'type': 'done', 
                 'model': claude.active_model,
                 'search_used': bool(search_results),
                 'search_results_count': len(search_results)
-            })}\n\n"
+            }
+            yield f"data: {json.dumps(completion_data)}\n\n"
 
         except anthropic.NotFoundError as e:
             yield f"data: {json.dumps({'type': 'error', 'error': f'Model not found: {str(e)}'})}\n\n"
@@ -191,13 +192,14 @@ async def stream_generate(request: StreamGenerateRequest):
                     chunk = text or ""
                     yield f"data: {json.dumps({'text': chunk, 'type': 'content'})}\n\n"
 
-            # Send completion with metadata
-            yield f"data: {json.dumps({
+            # Send completion with metadata - Fixed formatting
+            completion_data = {
                 'type': 'done', 
                 'model': claude.active_model,
                 'search_used': bool(search_results),
                 'search_results_count': len(search_results)
-            })}\n\n"
+            }
+            yield f"data: {json.dumps(completion_data)}\n\n"
 
         except anthropic.NotFoundError:
             # Fallback to backup model
@@ -213,13 +215,16 @@ async def stream_generate(request: StreamGenerateRequest):
                     for text in stream.text_stream:
                         chunk = text or ""
                         yield f"data: {json.dumps({'text': chunk, 'type': 'content'})}\n\n"
-                yield f"data: {json.dumps({
+                
+                # Send fallback completion - Fixed formatting
+                fallback_data = {
                     'type': 'done', 
                     'model': claude.active_model, 
                     'fallback': True,
                     'search_used': bool(search_results),
                     'search_results_count': len(search_results)
-                })}\n\n"
+                }
+                yield f"data: {json.dumps(fallback_data)}\n\n"
             except Exception as fallback_error:
                 yield f"data: {json.dumps({'type': 'error', 'error': f'Both models failed: {str(fallback_error)}'})}\n\n"
         except anthropic.AuthenticationError:
