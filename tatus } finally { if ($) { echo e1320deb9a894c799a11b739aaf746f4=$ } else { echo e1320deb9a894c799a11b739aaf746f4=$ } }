@@ -1,0 +1,5 @@
+[33md28df69[m Enhanced Brave search integration with intelligent detection and detailed logging
+[33m5d4f638[m Fix syntax error in streaming endpoints - Railway deployment fix
+[33ma4ce064[m Add Brave search support to streaming endpoints
+[33m9fcd5f6[m Fix: Remove _restore_newlines - pass Claude output directly
+[33m9d62c4d[m Housekeeping: rate limiter improvements and repo cleanup

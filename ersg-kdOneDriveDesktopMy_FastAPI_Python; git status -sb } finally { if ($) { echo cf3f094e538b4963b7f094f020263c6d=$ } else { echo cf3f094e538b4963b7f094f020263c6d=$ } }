@@ -1,0 +1,6 @@
+[33m0b916bf[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m feat(ai): add web-search + conversation history; update endpoints and scripts
+ COMMIT_CHANGES.bat              |  99 [32m++++++++++++++++++[m[31m----------[m
+ PUSH_CHANGES.bat                |  81 [32m+++++++++++++++++++++++[m
+ push_to_github.py               | 142 [32m++++++++++++++++++++++++++++++++++++++++[m
+ utils/streaming_ai_endpoints.py | 107 [32m++[m[31m----------------------------[m
+ 4 files changed, 295 insertions(+), 134 deletions(-)
