@@ -16,12 +16,14 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 from middleware.rate_limit import RateLimitMiddleware, RateLimitConfig
 
 from utils.streaming_ai_endpoints import streaming_ai_router
 from api.routes.chat import router as chat_router
 from api.routes.vision import router as vision_router  # NEW: Vision API
+from api.routes.model_3d import router as model_3d_router  # NEW: 3D Model API
 
 load_dotenv()
 
@@ -216,6 +218,10 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.include_router(streaming_ai_router)
 app.include_router(chat_router)
 app.include_router(vision_router)  # NEW: Vision API routes
+app.include_router(model_3d_router)  # NEW: 3D Model routes
+
+# Mount static files for serving 3D models
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/ai/health")
 async def ai_health_redirect():
@@ -633,4 +639,21 @@ def get_websocket_demo():
             return f.read()
     except FileNotFoundError:
         return "<html><body><h1>Demo page not found</h1></body></html>"
+
+@app.get("/static-files/{path:path}")
+async def serve_static_files(path: str):
+    """Serve static files from the 'static' directory."""
+    from fastapi.staticfiles import StaticFiles
+    from starlette.responses import FileResponse
+    import os
+
+    static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+    file_path = os.path.join(static_dir, path)
+
+    if os.path.exists(file_path):
+        return FileResponse(file_path)
+
+    raise HTTPException(status_code=404, detail="File not found")
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
