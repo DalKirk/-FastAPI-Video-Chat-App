@@ -225,12 +225,166 @@ async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Global exception: {exc}", exc_info=True)
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
-# --- Video/Live Stream Endpoints (simple in-memory mock) ---
+# Initialize connection manager
+manager = ConnectionManager()
+
+@app.get("/")
+def root():
+    return {
+        "message": "FastAPI Video Chat API is running!",
+        "version": "2.0.0",
+        "docs": "/docs",
+        "health": "/health",
+        "chat": "/chat",
+        "bunny_stream": "enabled" if bunny_enabled else "disabled"
+    }
+
+@app.get("/_debug")
+async def debug_info():
+    """Lightweight debug endpoint used by tests."""
+    return {
+        "bunny_enabled": bunny_enabled,
+        "environment": os.getenv("ENVIRONMENT", "development"),
+        "has_rooms": len(rooms) > 0,
+        "has_users": len(users) > 0,
+        "auto_create_on_ws": AUTO_CREATE_ON_WS_CONNECT,
+        "auto_create_on_join": AUTO_CREATE_ON_JOIN,
+        "auto_user_on_join": AUTO_USER_ON_JOIN,
+    }
+
+@app.get("/debug")
+async def debug_info_alias():
+    return await debug_info()
+
+@app.get("/api/_debug")
+async def debug_info_api_prefixed():
+    return await debug_info()
+
+@app.get("/api/debug")
+async def debug_info_api_alias():
+    return await debug_info()
+
+@app.get("/health")
+async def health_check():
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
+        "version": "2.0.0",
+        "environment": os.getenv("ENVIRONMENT", "development"),
+        "services": {
+            "api": "running",
+            "websocket": "running",
+            "bunny_stream": "enabled" if bunny_enabled else "disabled"
+        },
+        "stats": {
+            "active_rooms": len(rooms),
+            "active_users": len(users),
+            "total_messages": sum(len(msgs) for msgs in messages.values())
+        }
+    }
+
+@app.get("/ai/health")
+async def ai_health_redirect():
+    from api.routes.chat import chat_health_check
+    return await chat_health_check()
+
+@app.post("/api/ai-proxy")
+async def ai_proxy(request: Request):
+    try:
+        from api.routes.chat import chat_endpoint, get_ai_service
+        ai_service = get_ai_service()
+        return await chat_endpoint(request, ai_service)
+    except Exception as e:
+        logger.error(f"AI proxy error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/users", response_model=User)
+def create_user(user_data: UserCreate):
+    username = user_data.username.strip() if user_data.username else ""
+    if not username or len(username) < 2:
+        raise HTTPException(status_code=422, detail="Username must be at least 2 characters long")
+    
+    user_id = str(uuid.uuid4())
+    user = User(id=user_id, username=username, joined_at=datetime.now(timezone.utc))
+    users[user_id] = user
+    logger.info(f"Created user: {user.username} ({user_id})")
+    return user
+
+@app.get("/users", response_model=List[User])
+def get_users():
+    return list(users.values())
+
+@app.post("/rooms", response_model=Room)
+def create_room(room_data: RoomCreate):
+    room_id = str(uuid.uuid4())
+    room = Room(id=room_id, name=room_data.name, created_at=datetime.now(timezone.utc))
+    rooms[room_id] = room
+    messages[room_id] = []
+    room_live_streams.setdefault(room_id, [])
+    room_videos.setdefault(room_id, [])
+    logger.info(f"Created room: {room.name} ({room_id})")
+    return room
+
+@app.get("/rooms", response_model=List[Room])
+def get_rooms():
+    return list(rooms.values())
+
+@app.get("/rooms/{room_id}", response_model=Room)
+def get_room(room_id: str):
+    if room_id not in rooms:
+        raise HTTPException(status_code=404, detail="Room not found")
+    return rooms[room_id]
+
+@app.get("/rooms/{room_id}/messages")
+def get_room_messages(room_id: str, limit: int = 50):
+    if room_id not in rooms:
+        raise HTTPException(status_code=404, detail="Room not found")
+
+    room_messages = messages.get(room_id, [])
+    return [{
+        "id": msg.id,
+        "user_id": msg.user_id,
+        "username": msg.username,
+        "room_id": msg.room_id,
+        "content": msg.content,
+        "timestamp": msg.timestamp
+    } for msg in room_messages[-limit:]]
+
+@app.post("/rooms/{room_id}/join")
+def join_room(room_id: str, join_data: JoinRoomRequest):
+    if room_id not in rooms:
+        if AUTO_CREATE_ON_JOIN:
+            room = Room(id=room_id, name=f"Room {room_id[:8]}", created_at=datetime.now(timezone.utc))
+            rooms[room_id] = room
+            messages.setdefault(room_id, [])
+            room_live_streams.setdefault(room_id, [])
+            room_videos.setdefault(room_id, [])
+            logger.info(f"Auto-created room during join: {room_id}")
+        else:
+            raise HTTPException(status_code=404, detail="Room not found")
+
+    if join_data.user_id not in users:
+        if AUTO_USER_ON_JOIN:
+            uname = (join_data.username or "").strip()
+            if len(uname) < 2 and ENVIRONMENT == "production":
+                uname = f"Guest-{join_data.user_id[:6]}"
+            if len(uname) < 2:
+                raise HTTPException(status_code=404, detail="User not found")
+            user = User(id=join_data.user_id, username=uname, joined_at=datetime.now(timezone.utc))
+            users[join_data.user_id] = user
+            logger.info(f"Auto-created user during join: {user.username} ({user.id})")
+        else:
+            raise HTTPException(status_code=404, detail="User not found")
+
+    if join_data.user_id not in rooms[room_id].users:
+        rooms[room_id].users.append(join_data.user_id)
+        logger.info(f"User {users[join_data.user_id].username} joined room {rooms[room_id].name}")
+
+    return {"message": f"User {users[join_data.user_id].username} joined room {rooms[room_id].name}"}
+
+# --- Video/Live Stream Endpoints ---
 @app.post("/rooms/{room_id}/live-stream")
 async def create_live_stream(room_id: str, request: Request):
-    """Create a mock live stream for a room.
-    If Bunny is configured, this could be extended to call their API.
-    """
     if room_id not in rooms:
         raise HTTPException(status_code=404, detail="Room not found")
 
@@ -481,21 +635,4 @@ def get_websocket_demo():
             return f.read()
     except FileNotFoundError:
         return "<html><body><h1>Demo page not found</h1></body></html>"
-
-@app.get("/static-files/{path:path}")
-async def serve_static_files(path: str):
-    """Serve static files from the 'static' directory."""
-    from fastapi.staticfiles import StaticFiles
-    from starlette.responses import FileResponse
-    import os
-
-    static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
-    file_path = os.path.join(static_dir, path)
-
-    if os.path.exists(file_path):
-        return FileResponse(file_path)
-
-    raise HTTPException(status_code=404, detail="File not found")
-
-app.mount("/static", StaticFiles(directory="static"), name="static")
 
