@@ -24,6 +24,7 @@ from utils.streaming_ai_endpoints import streaming_ai_router
 from api.routes.chat import router as chat_router
 from api.routes.vision import router as vision_router  # NEW: Vision API
 from api.routes.model_3d import router as model_3d_router  # NEW: 3D Model API
+from routers.models_3d import router as models_3d_router  # NEW: Simple /3d endpoints
 
 load_dotenv()
 
@@ -46,6 +47,10 @@ ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
 AUTO_CREATE_ON_WS_CONNECT = os.getenv("ALLOW_WEBSOCKET_AUTO_ROOMS", "true" if ENVIRONMENT == "production" else "false").lower() == "true"
 AUTO_CREATE_ON_JOIN = os.getenv("ALLOW_JOIN_AUTO_ROOMS", "true" if ENVIRONMENT == "production" else "false").lower() == "true"
 AUTO_USER_ON_JOIN = os.getenv("ALLOW_JOIN_AUTO_USERS", "true" if ENVIRONMENT == "production" else "false").lower() == "true"
+
+# Ensure static directories exist
+os.makedirs("static/models", exist_ok=True)
+os.makedirs("static/previews", exist_ok=True)
 
 # Data Models
 class User(BaseModel):
@@ -203,6 +208,7 @@ app.include_router(streaming_ai_router)
 app.include_router(chat_router)
 app.include_router(vision_router)  # NEW: Vision API routes
 app.include_router(model_3d_router)  # NEW: 3D Model routes
+app.include_router(models_3d_router)  # NEW: Simple /3d routes
 
 # Mount static files for serving 3D models
 app.mount("/static", StaticFiles(directory="static"), name="static")
