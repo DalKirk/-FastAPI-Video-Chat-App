@@ -1,0 +1,10 @@
+[33m99907d0[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m fix: move OPTIONS handler after routers to prevent 405 errors
+[33m04309d3[m feat: add 3D model generation with Claude AI
+[33m65da3df[m feat: add Brave Search integration to streaming endpoints
+[33mca77859[m fix: remove Unicode emoji causing deployment crash
+[33m02d01a4[m fix(streaming): enforce proper markdown list formatting
+[33m140eeaa[m fix(streaming): add conversation history support to streaming endpoint
+[33mbdee6f9[m docs: add complete summary of all fixes
+[33me284911[m fix(frontend): add conversation_id tracking for memory
+[33m52ab5aa[m fix: restore chat memory, bullet points, and system prompts
+[33mc4a922f[m feat(ai): add web-search and conversation features

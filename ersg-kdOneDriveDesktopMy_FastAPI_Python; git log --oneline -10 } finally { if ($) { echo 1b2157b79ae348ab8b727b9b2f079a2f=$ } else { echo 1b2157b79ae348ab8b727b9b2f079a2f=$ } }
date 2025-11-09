@@ -1,0 +1,5 @@
+[33m99907d0[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m fix: move OPTIONS handler after routers to prevent 405 errors
+[33m04309d3[m feat: add 3D model generation with Claude AI
+[33m65da3df[m feat: add Brave Search integration to streaming endpoints
+[33mca77859[m fix: remove Unicode emoji causing deployment crash
+[33m02d01a4[m fix(streaming): enforce proper markdown list formatting
