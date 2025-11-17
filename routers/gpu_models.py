@@ -48,6 +48,9 @@ async def poll_worker_status(job_id: str, worker_job_id: str):
     max_attempts = 150  # 5 minutes with 2-second intervals
     attempt = 0
     
+    # Store worker job ID for later use
+    jobs[job_id]["worker_job_id"] = worker_job_id
+    
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             while attempt < max_attempts:
@@ -267,10 +270,16 @@ async def download_model(job_id: str):
             detail=f"Model not ready. Status: {job['status']}"
         )
     
+    # Get worker job ID
+    worker_job_id = job.get("worker_job_id")
+    if not worker_job_id:
+        raise HTTPException(status_code=500, detail="Worker job ID not found")
+    
     # Proxy download from GPU worker (full ZIP with OBJ+MTL+textures)
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            worker_download_url = f"{GPU_WORKER_URL}/download/{job_id}"
+            worker_download_url = f"{GPU_WORKER_URL}/download/{worker_job_id}"
+            logger.info(f"Proxying download from: {worker_download_url}")
             response = await client.get(worker_download_url)
             
             if response.status_code == 200:
@@ -282,13 +291,14 @@ async def download_model(job_id: str):
                     }
                 )
             else:
+                logger.error(f"Worker download failed: {response.status_code}")
                 raise HTTPException(
                     status_code=response.status_code,
                     detail="Failed to download from worker"
                 )
-    except Exception as e:
+    except httpx.RequestError as e:
         logger.error(f"Download proxy error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Worker connection error: {str(e)}")
 
 @router.get("/health")
 async def gpu_health_check():
