@@ -4,7 +4,7 @@ Image-to-3D conversion with real-time progress tracking
 Communicates with local GPU worker for actual generation
 """
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 from typing import Optional, Dict
@@ -101,7 +101,8 @@ async def poll_worker_status(job_id: str, worker_job_id: str):
         jobs[job_id]["error"] = str(e)
         jobs[job_id]["completed_at"] = datetime.now(timezone.utc).isoformat() + "Z"
 
-async def process_image_to_3d(job_id: str, image_data: bytes, prompt: str):
+async def process_image_to_3d(job_id: str, image_data: bytes, prompt: str, 
+                               texture_resolution: int = 2048, mc_resolution: int = 384):
     """
     Send image to GPU worker for processing
     """
@@ -129,8 +130,8 @@ async def process_image_to_3d(job_id: str, image_data: bytes, prompt: str):
                 'image': ('image.png', image_data, 'image/png')
             }
             data = {
-                'texture_resolution': 1024,
-                'mc_resolution': 256
+                'texture_resolution': texture_resolution,
+                'mc_resolution': mc_resolution
             }
             
             response = await client.post(
@@ -166,7 +167,9 @@ async def process_image_to_3d(job_id: str, image_data: bytes, prompt: str):
 @router.post("/generate", response_model=JobStatus)
 async def generate_gpu_model(
     background_tasks: BackgroundTasks,
-    image: UploadFile = File(..., description="Input image file (PNG, JPG)")
+    image: UploadFile = File(..., description="Input image file (PNG, JPG)"),
+    texture_resolution: int = Form(2048, description="Texture quality (512, 1024, 2048, 4096)"),
+    mc_resolution: int = Form(384, description="Mesh detail (128, 256, 384, 512)")
 ):
     """
     Generate a 3D model from an image using GPU acceleration
@@ -215,9 +218,10 @@ async def generate_gpu_model(
         prompt = f"3D model from uploaded image"
         
         # Start processing in background
-        background_tasks.add_task(process_image_to_3d, job_id, image_data, prompt)
+        background_tasks.add_task(process_image_to_3d, job_id, image_data, prompt, 
+                                 texture_resolution, mc_resolution)
         
-        logger.info(f"Created GPU generation job: {job_id}")
+        logger.info(f"Created GPU generation job: {job_id} (texture:{texture_resolution}, mc:{mc_resolution})")
         
         return JobStatus(**jobs[job_id])
         
