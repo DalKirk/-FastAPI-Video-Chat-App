@@ -26,6 +26,7 @@ from api.routes.vision import router as vision_router  # NEW: Vision API
 from api.routes.model_3d import router as model_3d_router  # NEW: 3D Model API
 from routers.models_3d import router as models_3d_router  # NEW: Simple /3d endpoints
 from routers.gpu_models import router as gpu_models_router  # NEW: GPU 3D generation
+from routers.static_models import router as static_models_router  # Serve GLB with proper headers
 
 load_dotenv()
 
@@ -210,7 +211,8 @@ app.include_router(chat_router)
 app.include_router(vision_router)  # NEW: Vision API routes
 app.include_router(model_3d_router)  # NEW: 3D Model routes
 app.include_router(models_3d_router)  # NEW: Simple /3d routes
-app.include_router(gpu_models_router)  # NEW: GPU 3D generation
+app.include_router(gpu_models_router)
+app.include_router(static_models_router)  # Serve GLB files with proper CORS/content-type  # NEW: GPU 3D generation
 
 # Mount static files for serving 3D models
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -643,4 +645,5 @@ def get_websocket_demo():
             return f.read()
     except FileNotFoundError:
         return "<html><body><h1>Demo page not found</h1></body></html>"
+
 
