@@ -66,7 +66,16 @@ async def poll_worker_status(job_id: str, worker_job_id: str):
                         
                         elif worker_job["status"] == "complete":
                             # Download GLB from worker to our server
-                            worker_glb_url = f"{GPU_WORKER_URL}{worker_job['model_url']}"
+                            model_url = worker_job.get('model_url', '')
+                            
+                            # Build full URL (handle both absolute and relative paths)
+                            if model_url.startswith('http'):
+                                worker_glb_url = model_url
+                            elif model_url.startswith('/'):
+                                worker_glb_url = f"{GPU_WORKER_URL}{model_url}"
+                            else:
+                                worker_glb_url = f"{GPU_WORKER_URL}/{model_url}"
+                            
                             local_glb_path = OUTPUT_DIR / f"{job_id}.glb"
                             
                             logger.info(f"Downloading GLB from worker: {worker_glb_url}")
@@ -82,9 +91,10 @@ async def poll_worker_status(job_id: str, worker_job_id: str):
                                 jobs[job_id]["glb_url"] = f"/static/models/gpu/{job_id}.glb"
                                 jobs[job_id]["generation_time"] = worker_job.get("generation_time")
                                 jobs[job_id]["completed_at"] = datetime.now(timezone.utc).isoformat() + "Z"
-                                logger.info(f"✅ Job {job_id} completed and GLB downloaded")
+                                logger.info(f"✅ Job {job_id} completed and GLB downloaded from {worker_glb_url}")
                                 return
                             else:
+                                logger.error(f"Failed to download GLB: {glb_response.status_code} from {worker_glb_url}")
                                 raise Exception(f"Failed to download GLB: {glb_response.status_code}")
                         
                         elif worker_job["status"] == "failed":
