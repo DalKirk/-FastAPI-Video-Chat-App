@@ -116,18 +116,22 @@ async def process_image_to_3d(job_id: str, image_data: bytes, prompt: str):
             if GPU_WORKER_API_KEY:
                 headers["X-API-Key"] = GPU_WORKER_API_KEY
             
-            # Create generation request
-            request_data = {
-                "prompt": prompt,
-                "method": "triposr",  # Use TripoSR method
-                "optimize": True
-            }
-            
+            # Send image file to GPU worker
             logger.info(f"Sending job {job_id} to GPU worker at {GPU_WORKER_URL}")
             
+            # Create multipart form data
+            files = {
+                'image': ('image.png', image_data, 'image/png')
+            }
+            data = {
+                'texture_resolution': 1024,
+                'mc_resolution': 256
+            }
+            
             response = await client.post(
-                f"{GPU_WORKER_URL}/generate",
-                json=request_data,
+                f"{GPU_WORKER_URL}/generate-from-image",
+                files=files,
+                data=data,
                 headers=headers
             )
             
