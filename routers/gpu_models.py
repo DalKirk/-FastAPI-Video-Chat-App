@@ -1,0 +1,285 @@
+"""
+GPU-accelerated 3D model generation with TripoSR
+Image-to-3D conversion with real-time progress tracking
+Communicates with local GPU worker for actual generation
+"""
+
+from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
+from typing import Optional, Dict
+import uuid
+import os
+import logging
+from datetime import datetime, timezone
+from pathlib import Path
+from PIL import Image
+import io
+import httpx
+import asyncio
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/gpu", tags=["GPU 3D Models"])
+
+# In-memory job storage (use database in production)
+jobs: Dict[str, Dict] = {}
+
+# Configuration
+OUTPUT_DIR = Path("static/models/gpu")
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+# GPU Worker configuration
+GPU_WORKER_URL = os.getenv("GPU_WORKER_URL", "http://localhost:8001")
+GPU_WORKER_API_KEY = os.getenv("GPU_WORKER_API_KEY", "")
+
+class JobStatus(BaseModel):
+    job_id: str
+    status: str  # "queued", "processing", "complete", "failed"
+    progress: int = Field(ge=0, le=100)
+    message: str
+    glb_url: Optional[str] = None
+    created_at: str
+    completed_at: Optional[str] = None
+    error: Optional[str] = None
+
+async def poll_worker_status(job_id: str, worker_job_id: str):
+    """Poll GPU worker for job completion"""
+    max_attempts = 150  # 5 minutes with 2-second intervals
+    attempt = 0
+    
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            while attempt < max_attempts:
+                try:
+                    # Check worker status
+                    response = await client.get(f"{GPU_WORKER_URL}/status/{worker_job_id}")
+                    
+                    if response.status_code == 200:
+                        worker_job = response.json()
+                        
+                        # Update our job with worker status
+                        if worker_job["status"] == "processing":
+                            jobs[job_id]["status"] = "processing"
+                            jobs[job_id]["progress"] = min(90, 20 + (attempt * 2))  # Estimate progress
+                            jobs[job_id]["message"] = "Generating 3D model on GPU worker..."
+                        
+                        elif worker_job["status"] == "complete":
+                            jobs[job_id]["status"] = "complete"
+                            jobs[job_id]["progress"] = 100
+                            jobs[job_id]["message"] = "Model generated successfully"
+                            jobs[job_id]["glb_url"] = worker_job["model_url"]
+                            jobs[job_id]["generation_time"] = worker_job.get("generation_time")
+                            jobs[job_id]["completed_at"] = datetime.now(timezone.utc).isoformat() + "Z"
+                            logger.info(f"✅ Job {job_id} completed via worker")
+                            return
+                        
+                        elif worker_job["status"] == "failed":
+                            raise Exception(worker_job.get("error", "Worker generation failed"))
+                    
+                    await asyncio.sleep(2)
+                    attempt += 1
+                    
+                except httpx.RequestError as e:
+                    logger.warning(f"Worker polling error (attempt {attempt}): {e}")
+                    await asyncio.sleep(2)
+                    attempt += 1
+            
+            # Timeout
+            raise Exception("Generation timed out after 5 minutes")
+            
+    except Exception as e:
+        logger.error(f"❌ Job {job_id} failed: {e}")
+        jobs[job_id]["status"] = "failed"
+        jobs[job_id]["progress"] = 0
+        jobs[job_id]["message"] = "Generation failed"
+        jobs[job_id]["error"] = str(e)
+        jobs[job_id]["completed_at"] = datetime.now(timezone.utc).isoformat() + "Z"
+
+async def process_image_to_3d(job_id: str, image_data: bytes, prompt: str):
+    """
+    Send image to GPU worker for processing
+    """
+    try:
+        jobs[job_id]["status"] = "processing"
+        jobs[job_id]["progress"] = 10
+        jobs[job_id]["message"] = "Sending to GPU worker..."
+        
+        # Save image temporarily
+        temp_image_path = OUTPUT_DIR / f"temp_{job_id}.png"
+        with open(temp_image_path, 'wb') as f:
+            f.write(image_data)
+        
+        # Send to GPU worker
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            headers = {}
+            if GPU_WORKER_API_KEY:
+                headers["X-API-Key"] = GPU_WORKER_API_KEY
+            
+            # Create generation request
+            request_data = {
+                "prompt": prompt,
+                "method": "triposr",  # Use TripoSR method
+                "optimize": True
+            }
+            
+            logger.info(f"Sending job {job_id} to GPU worker at {GPU_WORKER_URL}")
+            
+            response = await client.post(
+                f"{GPU_WORKER_URL}/generate",
+                json=request_data,
+                headers=headers
+            )
+            
+            if response.status_code != 200:
+                raise Exception(f"Worker rejected request: {response.text}")
+            
+            worker_response = response.json()
+            worker_job_id = worker_response["job_id"]
+            
+            logger.info(f"GPU worker accepted job {job_id} as worker job {worker_job_id}")
+            
+            # Clean up temp image
+            if temp_image_path.exists():
+                temp_image_path.unlink()
+            
+            # Poll worker for completion
+            await poll_worker_status(job_id, worker_job_id)
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to process job {job_id}: {e}")
+        jobs[job_id]["status"] = "failed"
+        jobs[job_id]["progress"] = 0
+        jobs[job_id]["message"] = "Generation failed"
+        jobs[job_id]["error"] = str(e)
+        jobs[job_id]["completed_at"] = datetime.now(timezone.utc).isoformat() + "Z"
+
+@router.post("/generate", response_model=JobStatus)
+async def generate_gpu_model(
+    background_tasks: BackgroundTasks,
+    image: UploadFile = File(..., description="Input image file (PNG, JPG)")
+):
+    """
+    Generate a 3D model from an image using GPU acceleration
+    Returns a job ID for tracking progress
+    """
+    try:
+        # Validate file type
+        if not image.content_type or not image.content_type.startswith("image/"):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid file type. Please upload an image (PNG, JPG, etc.)"
+            )
+        
+        # Read image data
+        image_data = await image.read()
+        
+        if len(image_data) == 0:
+            raise HTTPException(status_code=400, detail="Empty image file")
+        
+        # Validate image can be opened
+        try:
+            img = Image.open(io.BytesIO(image_data))
+            img.verify()
+        except Exception as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid image file: {str(e)}"
+            )
+        
+        # Create job
+        job_id = str(uuid.uuid4())
+        timestamp = datetime.now(timezone.utc).isoformat() + "Z"
+        
+        jobs[job_id] = {
+            "job_id": job_id,
+            "status": "queued",
+            "progress": 0,
+            "message": "Job queued",
+            "glb_url": None,
+            "created_at": timestamp,
+            "completed_at": None,
+            "error": None
+        }
+        
+        # Extract prompt from image filename or use default
+        prompt = f"3D model from uploaded image"
+        
+        # Start processing in background
+        background_tasks.add_task(process_image_to_3d, job_id, image_data, prompt)
+        
+        logger.info(f"Created GPU generation job: {job_id}")
+        
+        return JobStatus(**jobs[job_id])
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating GPU generation job: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create job: {str(e)}")
+
+@router.get("/job/{job_id}", response_model=JobStatus)
+async def get_job_status(job_id: str):
+    """Get the status of a GPU generation job - frontend polls this every 2 seconds"""
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    return JobStatus(**jobs[job_id])
+
+@router.get("/download/{job_id}")
+async def download_model(job_id: str):
+    """Download the generated 3D model (GLB format)"""
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    job = jobs[job_id]
+    
+    if job["status"] != "complete":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Model not ready. Status: {job['status']}"
+        )
+    
+    if not job["glb_url"]:
+        raise HTTPException(status_code=404, detail="Model file not found")
+    
+    # Convert URL path to file path
+    file_path = job["glb_url"].replace("/static/models/gpu/", "static/models/gpu/")
+    
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Model file does not exist")
+    
+    return FileResponse(
+        path=file_path,
+        media_type="model/gltf-binary",
+        filename=f"{job_id}.glb",
+        headers={
+            "Content-Disposition": f"attachment; filename={job_id}.glb"
+        }
+    )
+
+@router.get("/health")
+async def gpu_health_check():
+    """Health check for GPU model generation service"""
+    worker_status = "unknown"
+    worker_info = {}
+    
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(f"{GPU_WORKER_URL}/health")
+            if response.status_code == 200:
+                worker_status = "connected"
+                worker_info = response.json()
+    except Exception as e:
+        worker_status = f"disconnected: {str(e)}"
+    
+    return {
+        "status": "healthy",
+        "service": "gpu_model_generation",
+        "worker_url": GPU_WORKER_URL,
+        "worker_status": worker_status,
+        "worker_info": worker_info,
+        "total_jobs": len(jobs),
+        "active_jobs": len([j for j in jobs.values() if j["status"] in ["queued", "processing"]]),
+        "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
+    }
