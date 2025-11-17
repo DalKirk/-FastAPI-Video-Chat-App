@@ -5,7 +5,7 @@ Communicates with local GPU worker for actual generation
 """
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 from typing import Optional, Dict
 import uuid
@@ -65,14 +65,27 @@ async def poll_worker_status(job_id: str, worker_job_id: str):
                             jobs[job_id]["message"] = "Generating 3D model on GPU worker..."
                         
                         elif worker_job["status"] == "complete":
-                            jobs[job_id]["status"] = "complete"
-                            jobs[job_id]["progress"] = 100
-                            jobs[job_id]["message"] = "Model generated successfully"
-                            jobs[job_id]["glb_url"] = worker_job["model_url"]
-                            jobs[job_id]["generation_time"] = worker_job.get("generation_time")
-                            jobs[job_id]["completed_at"] = datetime.now(timezone.utc).isoformat() + "Z"
-                            logger.info(f"✅ Job {job_id} completed via worker")
-                            return
+                            # Download GLB from worker to our server
+                            worker_glb_url = f"{GPU_WORKER_URL}{worker_job['model_url']}"
+                            local_glb_path = OUTPUT_DIR / f"{job_id}.glb"
+                            
+                            logger.info(f"Downloading GLB from worker: {worker_glb_url}")
+                            glb_response = await client.get(worker_glb_url)
+                            
+                            if glb_response.status_code == 200:
+                                with open(local_glb_path, 'wb') as f:
+                                    f.write(glb_response.content)
+                                
+                                jobs[job_id]["status"] = "complete"
+                                jobs[job_id]["progress"] = 100
+                                jobs[job_id]["message"] = "Model generated successfully"
+                                jobs[job_id]["glb_url"] = f"/static/models/gpu/{job_id}.glb"
+                                jobs[job_id]["generation_time"] = worker_job.get("generation_time")
+                                jobs[job_id]["completed_at"] = datetime.now(timezone.utc).isoformat() + "Z"
+                                logger.info(f"✅ Job {job_id} completed and GLB downloaded")
+                                return
+                            else:
+                                raise Exception(f"Failed to download GLB: {glb_response.status_code}")
                         
                         elif worker_job["status"] == "failed":
                             raise Exception(worker_job.get("error", "Worker generation failed"))
@@ -232,7 +245,7 @@ async def get_job_status(job_id: str):
 
 @router.get("/download/{job_id}")
 async def download_model(job_id: str):
-    """Download the generated 3D model (GLB format)"""
+    """Download the generated 3D model - proxies full ZIP from GPU worker"""
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Job not found")
     
@@ -244,23 +257,28 @@ async def download_model(job_id: str):
             detail=f"Model not ready. Status: {job['status']}"
         )
     
-    if not job["glb_url"]:
-        raise HTTPException(status_code=404, detail="Model file not found")
-    
-    # Convert URL path to file path
-    file_path = job["glb_url"].replace("/static/models/gpu/", "static/models/gpu/")
-    
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="Model file does not exist")
-    
-    return FileResponse(
-        path=file_path,
-        media_type="model/gltf-binary",
-        filename=f"{job_id}.glb",
-        headers={
-            "Content-Disposition": f"attachment; filename={job_id}.glb"
-        }
-    )
+    # Proxy download from GPU worker (full ZIP with OBJ+MTL+textures)
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            worker_download_url = f"{GPU_WORKER_URL}/download/{job_id}"
+            response = await client.get(worker_download_url)
+            
+            if response.status_code == 200:
+                return Response(
+                    content=response.content,
+                    media_type="application/zip",
+                    headers={
+                        "Content-Disposition": f"attachment; filename=model_{job_id}.zip"
+                    }
+                )
+            else:
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail="Failed to download from worker"
+                )
+    except Exception as e:
+        logger.error(f"Download proxy error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/health")
 async def gpu_health_check():
