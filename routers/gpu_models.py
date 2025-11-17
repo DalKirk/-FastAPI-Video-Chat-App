@@ -68,37 +68,16 @@ async def poll_worker_status(job_id: str, worker_job_id: str):
                             jobs[job_id]["message"] = "Generating 3D model on GPU worker..."
                         
                         elif worker_job["status"] == "complete":
-                            # Download GLB from worker to our server
-                            model_url = worker_job.get('model_url', '')
-                            
-                            # Build full URL (handle both absolute and relative paths)
-                            if model_url.startswith('http'):
-                                worker_glb_url = model_url
-                            elif model_url.startswith('/'):
-                                worker_glb_url = f"{GPU_WORKER_URL}{model_url}"
-                            else:
-                                worker_glb_url = f"{GPU_WORKER_URL}/{model_url}"
-                            
-                            local_glb_path = OUTPUT_DIR / f"{job_id}.glb"
-                            
-                            logger.info(f"Downloading GLB from worker: {worker_glb_url}")
-                            glb_response = await client.get(worker_glb_url)
-                            
-                            if glb_response.status_code == 200:
-                                with open(local_glb_path, 'wb') as f:
-                                    f.write(glb_response.content)
-                                
-                                jobs[job_id]["status"] = "complete"
-                                jobs[job_id]["progress"] = 100
-                                jobs[job_id]["message"] = "Model generated successfully"
-                                jobs[job_id]["glb_url"] = f"/static/models/gpu/{job_id}.glb"
-                                jobs[job_id]["generation_time"] = worker_job.get("generation_time")
-                                jobs[job_id]["completed_at"] = datetime.now(timezone.utc).isoformat() + "Z"
-                                logger.info(f"✅ Job {job_id} completed and GLB downloaded from {worker_glb_url}")
-                                return
-                            else:
-                                logger.error(f"Failed to download GLB: {glb_response.status_code} from {worker_glb_url}")
-                                raise Exception(f"Failed to download GLB: {glb_response.status_code}")
+                            # Don't download - Railway filesystem is ephemeral!
+                            # Instead, proxy the GLB through our /gpu/preview endpoint
+                            jobs[job_id]["status"] = "complete"
+                            jobs[job_id]["progress"] = 100
+                            jobs[job_id]["message"] = "Model generated successfully"
+                            jobs[job_id]["glb_url"] = f"/gpu/preview/{job_id}.glb"  # Proxy endpoint
+                            jobs[job_id]["generation_time"] = worker_job.get("generation_time")
+                            jobs[job_id]["completed_at"] = datetime.now(timezone.utc).isoformat() + "Z"
+                            logger.info(f"✅ Job {job_id} completed - GLB available at worker")
+                            return
                         
                         elif worker_job["status"] == "failed":
                             raise Exception(worker_job.get("error", "Worker generation failed"))
@@ -255,6 +234,44 @@ async def get_job_status(job_id: str):
         raise HTTPException(status_code=404, detail="Job not found")
     
     return JobStatus(**jobs[job_id])
+
+@router.get("/preview/{filename}")
+async def preview_model(filename: str):
+    """Proxy GLB file from GPU worker for browser preview"""
+    # Extract job_id from filename (e.g., "abc-123.glb" -> "abc-123")
+    job_id = filename.replace('.glb', '')
+    
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    job = jobs[job_id]
+    worker_job_id = job.get("worker_job_id")
+    
+    if not worker_job_id:
+        raise HTTPException(status_code=500, detail="Worker job ID not found")
+    
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # Get GLB from worker
+            worker_glb_url = f"{GPU_WORKER_URL}/outputs/{worker_job_id}/model.glb"
+            logger.info(f"Proxying GLB preview from: {worker_glb_url}")
+            response = await client.get(worker_glb_url)
+            
+            if response.status_code == 200:
+                return Response(
+                    content=response.content,
+                    media_type="model/gltf-binary",
+                    headers={
+                        "Access-Control-Allow-Origin": "*",
+                        "Cache-Control": "public, max-age=3600"
+                    }
+                )
+            else:
+                logger.error(f"Worker GLB fetch failed: {response.status_code}")
+                raise HTTPException(status_code=response.status_code, detail="GLB not available")
+    except httpx.RequestError as e:
+        logger.error(f"Preview proxy error: {e}")
+        raise HTTPException(status_code=500, detail=f"Worker connection error: {str(e)}")
 
 @router.get("/download/{job_id}")
 async def download_model(job_id: str):
